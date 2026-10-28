@@ -1,0 +1,9 @@
+version: 1
+project: avior
+name: avior
+namespace: avior
+capture:
+  enabled: true
+  threshold: 0.6
+  dedupeWindow: 24h
+  provenanceFilterDefault: all
