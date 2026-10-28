@@ -14,6 +14,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -38,7 +39,7 @@ const CaddyVersion = "2.10.0"
 // atau bandingkan checksum terhadap nilai tertanam saat build.
 type Manifest struct {
 	SHA256  string `json:"sha256"`
-	Version string `json:"version"`
+	Version string `json:"version"` // tidak divalidasi di readManifest; checksum adalah binding
 }
 
 // ManifestPath mengembalikan lokasi manifest checksum binary di
@@ -47,15 +48,20 @@ func ManifestPath() string {
 	return filepath.Join(brand.StateDir(), "caddy-manifest.json")
 }
 
-// VerifyManaged adalah gate ketat: versi binary HARUS match pin dan
-// checksum sha256 binary HARUS match manifest yang tercatat saat install.
+// VerifyManaged adalah gate ketat: checksum sha256 binary HARUS match
+// manifest yang tercatat saat install, dan versi binary HARUS match pin.
 // Pemanggil sudo (`caddy trust`) dan pemakaian binary terkelola lainnya
 // WAJIB lewat sini. Manifest hilang/rusak/checksum beda = refuse (fail
 // closed).
+//
+// Urutan hash-before-exec: checksum diverifikasi SEBELUM binary dieksekusi
+// (checkVersion) — binary tak terverifikasi/tampered tidak pernah dijalankan
+// selama verifikasi itu sendiri.
+//
+// Kontrak TOCTOU untuk pemanggil sudo: VerifyManaged HARUS dipanggil
+// SEGERA sebelum exec sudo (`caddy trust`), tanpa operasi tulis file di
+// antara keduanya — binary/manifest bisa ditimpa di jendela gate-to-exec.
 func VerifyManaged(binPath string) error {
-	if err := checkVersion(binPath); err != nil {
-		return err
-	}
 	m, err := readManifest()
 	if err != nil {
 		return err
@@ -67,7 +73,7 @@ func VerifyManaged(binPath string) error {
 	if sum != m.SHA256 {
 		return fmt.Errorf("proxy: checksum %s tidak cocok dengan manifest (H3): got %s want %s", binPath, sum, m.SHA256)
 	}
-	return nil
+	return checkVersion(binPath)
 }
 
 // VerifyPATH adalah fallback dev-only untuk binary yang di-resolve dari
@@ -80,25 +86,38 @@ func VerifyPATH(binPath string) error {
 }
 
 // checkVersion menjalankan `<binPath> version` (args-list, tanpa shell,
-// timeout 5s) dan menuntut output memuat versi yang dipin. Yang dipin
-// adalah major.minor ("v2.10."); patch bebas mengikuti rilis pin agar
-// patch keamanan upstream tidak memaksa bump konstanta. ponytail: kalau
-// mau pin patch exact, ganti prefix match di versionMatches dengan
-// perbandingan token penuh "v"+CaddyVersion.
+// timeout 5s) dan menuntut output memuat versi yang dipin via
+// versionMatches.
 func checkVersion(binPath string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, binPath, "version").Output()
 	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && len(exitErr.Stderr) > 0 {
+			return fmt.Errorf("proxy: jalankan %q version: %w (stderr: %s)", binPath, err, strings.TrimSpace(string(exitErr.Stderr)))
+		}
 		return fmt.Errorf("proxy: jalankan %q version: %w", binPath, err)
 	}
-	prefix := "v" + CaddyVersion[:strings.LastIndex(CaddyVersion, ".")+1]
-	for _, field := range strings.Fields(string(out)) {
-		if strings.HasPrefix(field, prefix) {
-			return nil
-		}
+	if versionMatches(string(out)) {
+		return nil
 	}
 	return fmt.Errorf("proxy: versi %s tidak match pin %s (output: %q)", binPath, CaddyVersion, strings.TrimSpace(string(out)))
+}
+
+// versionMatches menuntut output memuat token versi dengan prefix pin.
+// Yang dipin adalah major.minor ("v2.10."); patch bebas mengikuti rilis
+// pin agar patch keamanan upstream tidak memaksa bump konstanta.
+// ponytail: kalau mau pin patch exact, ganti prefix match dengan
+// perbandingan token penuh "v"+CaddyVersion.
+func versionMatches(output string) bool {
+	prefix := "v" + CaddyVersion[:strings.LastIndex(CaddyVersion, ".")+1]
+	for _, field := range strings.Fields(output) {
+		if strings.HasPrefix(field, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // readManifest membaca dan memvalidasi manifest checksum. Fail closed:

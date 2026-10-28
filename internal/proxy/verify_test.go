@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -138,15 +139,8 @@ func TestVersionMatches(t *testing.T) {
 		{"v2.1.0 h1:abc\n", false}, // bukan prefix salah-salah (v2.1 != v2.10.)
 		{"", false},
 	}
-	prefix := "v" + CaddyVersion[:strings.LastIndex(CaddyVersion, ".")+1]
 	for _, tt := range tests {
-		var got bool
-		for _, field := range strings.Fields(tt.out) {
-			if strings.HasPrefix(field, prefix) {
-				got = true
-			}
-		}
-		if got != tt.want {
+		if got := versionMatches(tt.out); got != tt.want {
 			t.Errorf("versionMatches(%q) = %v, want %v", tt.out, got, tt.want)
 		}
 	}
@@ -168,5 +162,69 @@ func TestFileSHA256(t *testing.T) {
 	}
 	if _, err := fileSHA256(filepath.Join(t.TempDir(), "tidak-ada")); err == nil {
 		t.Fatal("file hilang harus error")
+	}
+}
+
+// findModuleRoot naik dari dir test sampai go.mod ditemukan.
+func findModuleRoot(t *testing.T) string {
+	t.Helper()
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("go.mod tidak ditemukan dari " + dir)
+		}
+		dir = parent
+	}
+}
+
+// TestVerifyPATHOnlyInVerify mengunci pemakaian VerifyPATH (fallback
+// dev-only, H3): hanya boleh dipanggil di verify.go dan file test ini.
+// Saat layer command dibangun dan command dev butuh VerifyPATH, extend
+// allowlist di sini secara sadar — bukan supaya lolos diam-diam.
+func TestVerifyPATHOnlyInVerify(t *testing.T) {
+	root := findModuleRoot(t)
+	allow := map[string]bool{
+		filepath.Join("internal", "proxy", "verify.go"):      true,
+		filepath.Join("internal", "proxy", "verify_test.go"): true,
+	}
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case ".git", "vendor", "EKA", "exchange":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		if allow[filepath.ToSlash(rel)] {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if strings.Contains(string(data), "VerifyPATH(") {
+			t.Errorf("%s memakai VerifyPATH — fallback dev-only (H3), hanya verify.go/verify_test.go yang boleh; extend allowlist di test ini bila memang disengaja", rel)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }
