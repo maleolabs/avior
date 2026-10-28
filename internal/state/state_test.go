@@ -9,10 +9,12 @@ import (
 )
 
 // isolateHome mengarahkan brand.StateDir() ke temp dir per-test agar test
-// tidak menyentuh state user sungguhan.
+// tidak menyentuh state user sungguhan. Windows membaca %USERPROFILE%.
 func isolateHome(t *testing.T) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir)
 }
 
 func TestPathsKeyedPerProject(t *testing.T) {
@@ -149,6 +151,56 @@ func TestSaveAtomicNoTempLeft(t *testing.T) {
 	}
 	if info.Mode().Perm() != 0o600 {
 		t.Fatalf("perm state = %v, want 0600", info.Mode().Perm())
+	}
+	// Perm processes file diverifikasi terpisah di bawah (0644).
+	_, procPath, err := Paths("/home/dev/app")
+	if err != nil {
+		t.Fatalf("Paths error: %v", err)
+	}
+	if err := SaveProcesses(procPath, nil); err != nil {
+		t.Fatalf("SaveProcesses error: %v", err)
+	}
+	procInfo, err := os.Stat(procPath)
+	if err != nil {
+		t.Fatalf("Stat error: %v", err)
+	}
+	if procInfo.Mode().Perm() != 0o644 {
+		t.Fatalf("perm processes = %v, want 0644", procInfo.Mode().Perm())
+	}
+}
+
+// TestLoadCorruptJSONError: file state rusak → LoadState error dan
+// exists=false (jangan pernah diam-diam pakai state korup).
+func TestLoadCorruptJSONError(t *testing.T) {
+	isolateHome(t)
+	statePath, procPath, err := Paths("/home/dev/app")
+	if err != nil {
+		t.Fatalf("Paths error: %v", err)
+	}
+	if err := SaveState(statePath, RuntimeState{ProjectRoot: "x"}); err != nil {
+		t.Fatalf("SaveState error: %v", err)
+	}
+	if err := os.WriteFile(statePath, []byte(`{"port": `), 0o600); err != nil {
+		t.Fatalf("WriteFile error: %v", err)
+	}
+	st, exists, err := LoadState(statePath)
+	if err == nil {
+		t.Fatal("LoadState harus error untuk JSON korup")
+	}
+	if exists {
+		t.Fatal("exists harus false untuk JSON korup")
+	}
+	if st != (RuntimeState{}) {
+		t.Fatalf("state harus zero value: %+v", st)
+	}
+	if err := SaveProcesses(procPath, nil); err != nil {
+		t.Fatalf("SaveProcesses error: %v", err)
+	}
+	if err := os.WriteFile(procPath, []byte("not json"), 0o644); err != nil {
+		t.Fatalf("WriteFile error: %v", err)
+	}
+	if _, exists, err := LoadProcesses(procPath); err == nil || exists {
+		t.Fatalf("LoadProcesses: err=%v exists=%v", err, exists)
 	}
 }
 

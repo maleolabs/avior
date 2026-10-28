@@ -1,10 +1,11 @@
 // Package state adalah runtime state per-proyek (arc:avior-architecture,
 // adr:per-project-runtime-state). Tidak ada state global lintas proyek:
 // semua file state di-key per root proyek memakai token deterministik
-// (hash 8 hex pertama dari path absolut proyek), sehingga dua checkout
-// paralel tidak saling menimpa state, dan stop/attach/monitor hanya bisa
-// menargetkan runtime milik proyek itu sendiri. Semua file berada di
-// user-level dir (internal/brand.StateDir), tidak pernah di dalam proyek.
+// (hash 8 byte pertama / 16 hex dari path absolut proyek), sehingga dua
+// checkout paralel tidak saling menimpa state, dan stop/attach/monitor
+// hanya bisa menargetkan runtime milik proyek itu sendiri. Semua file
+// berada di user-level dir (internal/brand.StateDir), tidak pernah di
+// dalam proyek.
 package state
 
 import (
@@ -25,7 +26,7 @@ import (
 type Process struct {
 	PID       int       `json:"pid"`
 	Command   string    `json:"command"`    // path executable; diverifikasi sebelum kill
-	StartedAt time.Time `json:"started_at"` // deteksi PID reuse
+	StartedAt time.Time `json:"started_at"` // WAJIB diambil spawner saat spawn (sebelum SaveState), bukan saat save
 }
 
 // RuntimeState adalah metadata runtime satu proyek. Nilai nol (MainPID.PID
@@ -39,15 +40,17 @@ type RuntimeState struct {
 
 // Paths mengembalikan lokasi kedua file state untuk projectRoot:
 // runtime-state-<sha8>.json dan runtime-processes-<sha8>.json di dalam
-// brand.StateDir(). Path relatif dinormalisasi ke absolut dulu, jadi root
-// yang sama selalu menghasilkan token yang sama.
+// brand.StateDir(). Token dihitung dari path LITERAL setelah
+// filepath.Abs (relatif dinormalisasi ke absolut), TIDAK symlink-resolved:
+// path symlink ke proyek yang sama = runtime terpisah. Arah fail-safe —
+// stop/attach tidak pernah salah menganggap runtime proyek lain miliknya.
 func Paths(projectRoot string) (statePath, processesPath string, err error) {
 	abs, err := filepath.Abs(projectRoot)
 	if err != nil {
 		return "", "", fmt.Errorf("state: abs path: %w", err)
 	}
 	sum := sha256.Sum256([]byte(abs))
-	token := hex.EncodeToString(sum[:8]) // ponytail: 8 hex cukup unik antar checkout; naik ke 16 jika tabrakan nyata
+	token := hex.EncodeToString(sum[:8]) // ponytail: token 64-bit (16 hex) cukup unik antar checkout; naik ke 32 hex jika tabrakan nyata
 	dir := brand.StateDir()
 	return filepath.Join(dir, "runtime-state-"+token+".json"),
 		filepath.Join(dir, "runtime-processes-"+token+".json"), nil
@@ -109,7 +112,9 @@ func LoadProcesses(processesPath string) (procs []Process, exists bool, err erro
 }
 
 // saveAtomic menulis data ke path: temp file di dir yang sama (agar rename
-// atomik pada filesystem yang sama), sync, chmod, lalu rename.
+// atomik pada filesystem yang sama), sync, chmod, lalu rename. Di Windows,
+// rename menimpa file yang sedang terbuka gagal dengan error (sharing
+// violation) — fail closed, file lama tetap utuh.
 func saveAtomic(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
