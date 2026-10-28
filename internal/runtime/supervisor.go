@@ -2,11 +2,19 @@
 //
 // TEPAT SATU goroutine per Supervised yang memanggil cmd.Wait() — goroutine
 // reaper yang di-spawn di Start(). Pihak lain (startup monitor, Terminate,
-// Wait(), serve loop) WAJIB mengonsumsi channel reaping via Reaped()/Wait()
-// — JANGAN pernah memanggil cmd.Wait() sendiri. Wait kedua pada child yang
+// Wait(), serve loop) WAJIB menunggu via Wait()/Terminate()/Reaped() —
+// JANGAN pernah memanggil cmd.Wait() sendiri. Wait kedua pada child yang
 // sama menghasilkan "waitid: no child processes" / error tak terduga karena
 // reap itu side-effect one-shot: siapa pun yang menang memungut exit status,
 // pihak kedua tidak mendapat apa-apa.
+//
+// BROADCAST, BUKAN CHANNEL SATU-KONSUMEN (fix review HIGH lanjutan):
+// konsumen kedua yang block di `<-reapCh` SEBELUM memo terisi akan hang
+// selamanya — channel mengirim nilai tepat sekali untuk SATU penerima, dan
+// si penerima itu yang memutkan memo; konsumen kedua tidak pernah dibangun-
+// kan. Karena itu hasil reaping disebarkan via channel `done` yang di-close:
+// close membangunkan SEMUA waiter sekaligus, dan setiap waiter membaca memo
+// (terjamin terisi: remember() selalu mendahului close(done)).
 //
 // catatan: split ke internal/processgroup (registry identity-checked +
 // privilege + process-group kill) terjadi di work item p1-foundation; di
@@ -23,7 +31,9 @@ import (
 	"github.com/maleolabs/avior/internal/state"
 )
 
-// waitResult adalah hasil reap satu proses.
+// waitResult adalah hasil reap satu proses. ponytail: tetap unexported
+// karena startup monitor tinggal in-package; export WaitResult saat monitor
+// pindah ke internal/processgroup di p1.
 type waitResult struct {
 	err      error
 	exitedAt time.Time
@@ -31,15 +41,18 @@ type waitResult struct {
 
 // Supervised membungkus satu exec.Cmd dengan kepemilikan Wait yang tunggal.
 type Supervised struct {
-	cmd    *exec.Cmd
-	reapCh chan waitResult
+	cmd *exec.Cmd
+	// done di-close oleh reaper tepat setelah memo terisi: broadcast exit
+	// ke semua konsumen (Wait, Terminate, monitor) tanpa risiko hang.
+	done chan struct{}
 
 	identity state.Process
 
-	terminateOnce sync.Once // eskalasi SIGTERM->SIGKILL hanya dijalankan sekali
+	terminateOnce sync.Once   // sinyal graceful + eskalasi hanya dijalankan sekali
+	escalate      *time.Timer // timer Kill; dibuat dalam terminateOnce
 
 	mu     sync.Mutex
-	result *waitResult // memoized oleh konsumen pertama reapCh
+	result *waitResult // dimutkan oleh reaper sebelum close(done)
 }
 
 // Start menjalankan command (args-list saja, tanpa shell — konvensi repo)
@@ -50,8 +63,8 @@ func Start(name string, args ...string) (*Supervised, error) {
 		return nil, fmt.Errorf("runtime: start %s: %w", name, err)
 	}
 	s := &Supervised{
-		cmd:    cmd,
-		reapCh: make(chan waitResult, 1),
+		cmd:  cmd,
+		done: make(chan struct{}),
 		identity: state.Process{
 			PID:       cmd.Process.Pid,
 			Command:   cmd.Path,
@@ -61,11 +74,11 @@ func Start(name string, args ...string) (*Supervised, error) {
 	go func() {
 		err := cmd.Wait() // satu-satunya pemanggil Wait di seluruh supervisor
 		r := waitResult{err: err, exitedAt: time.Now()}
-		// Memoize SEBELUM kirim: konsumen yang mengambil nilai via channel
-		// maupun yang memanggil Wait() setelahnya membaca hasil yang sama —
-		// tidak ada jalur konsumsi yang bisa saling mengunci/mengosongkan.
+		// Urutan WAJIB: memoize dulu, lalu close. Waiter yang dibangunkan
+		// oleh close(done) dijamin menemukan memo terisi — tidak ada jalur
+		// konsumsi yang bisa saling mengunci/mengosongkan.
 		s.remember(r)
-		s.reapCh <- r
+		close(s.done)
 	}()
 	return s, nil
 }
@@ -78,13 +91,19 @@ func (s *Supervised) Identity() state.Process { return s.identity }
 // tanpa verifikasi identitas).
 func (s *Supervised) PID() int { return s.identity.PID }
 
-// Reaped mengembalikan channel reaping untuk konsumen non-Wait (startup
-// monitor, serve loop select). Channel buffered(1) dan hasilnya juga
-// dimemoized, jadi konsumen bergantian tetap aman.
-func (s *Supervised) Reaped() <-chan waitResult { return s.reapCh }
+// Reaped mengembalikan channel yang di-close saat child reaped (broadcast:
+// membangunkan semua observer, bukan sekali untuk satu penerima). Detail
+// hasil (error, waktu exit) diambil lewat Wait()/ExitedAt() yang memakai
+// memo — JANGAN mencoba memungut hasil dari channel ini. Konsumen in-package
+// (startup monitor, serve loop) juga memakai pasangan ini;
+// ponytail: Reaped mengembalikan <chan struct{}> (bukan waitResult) agar API
+// jujur terhadap package luar — upgrade path: export WaitResult saat monitor
+// pindah ke internal/processgroup di p1.
+func (s *Supervised) Reaped() <-chan struct{} { return s.done }
 
-// Wait menunggu exit child via channel reaping (BUKAN cmd.Wait). Hasilnya
-// dimemoized: pemanggilan ulang setelah Terminate tetap mengembalikan nilai.
+// Wait menunggu exit child via broadcast done (BUKAN cmd.Wait). Hasilnya
+// dimemoized: pemanggilan ulang (juga setelah Terminate) tetap mengembalikan
+// nilai yang sama, dan banyak Wait konkuren aman.
 func (s *Supervised) Wait() error {
 	return s.consume().err
 }
@@ -94,14 +113,20 @@ func (s *Supervised) ExitedAt() time.Time {
 	return s.consume().exitedAt
 }
 
-// consume memungut hasil reap tepat satu kali: konsumen pertama channel
-// memutkan memo, konsumen berikutnya membaca memo.
+// consume memungut hasil reap: memo dulu; bila kosong, tunggu broadcast
+// done lalu baca ulang memo (terjamin terisi oleh urutan remember->close
+// di reaper). Tidak ada pembacaan channel hasil secara langsung di sini —
+// itu pola yang menyebabkan hang konsumen kedua (review HIGH).
 func (s *Supervised) consume() waitResult {
 	if r, ok := s.recall(); ok {
 		return r
 	}
-	r := <-s.reapCh
-	s.remember(r)
+	<-s.done
+	r, ok := s.recall()
+	if !ok {
+		// Tidak mungkin: close(done) hanya terjadi setelah remember().
+		panic("runtime: done tertutup tanpa memo — pelanggaran invariant reaper")
+	}
 	return r
 }
 
@@ -123,16 +148,16 @@ func (s *Supervised) recall() (waitResult, bool) {
 }
 
 // Terminate menghentikan child: sinyal graceful, tunggu reaped hingga grace,
-// eskalasi Kill, tunggu reaped hingga force lagi. Idempotent — Terminate
-// ganda aman (eskalasi dijalankan sekali via terminateOnce; pemanggil kedua
-// tinggal menunggu hasil reaping yang sama). Reap TETAP via channel yang
-// sama; tidak ada Wait kedua.
+// eskalasi Kill, tunggu hingga force lagi. Idempotent — Terminate ganda aman
+// (sinyal + eskalasi dijalankan sekali via terminateOnce; pemanggil kedua
+// menunggu broadcast done yang sama). Reap TETAP milik satu goroutine
+// reaper; Terminate hanya mengonsumsi broadcast.
 func (s *Supervised) Terminate(grace, force time.Duration) error {
 	s.terminateOnce.Do(func() {
 		// Sinyal graceful; error diabaikan secara sadar — child mungkin
 		// sudah exit sendiri, dan eskalasi tetap menutup kasus itu.
 		_ = s.signalGraceful()
-		time.AfterFunc(grace, func() {
+		s.escalate = time.AfterFunc(grace, func() {
 			_ = s.cmd.Process.Kill() // ponytail: no process-group kill yet — lands with internal/processgroup at p1
 		})
 	})
@@ -140,18 +165,40 @@ func (s *Supervised) Terminate(grace, force time.Duration) error {
 	defer deadline.Stop()
 	for {
 		if r, ok := s.recall(); ok {
+			s.stopEscalation()
 			return r.err
 		}
 		select {
-		case r := <-s.reapCh:
-			s.remember(r)
-			return r.err
-		case <-deadline.C:
+		case <-s.done:
+			s.stopEscalation()
 			if r, ok := s.recall(); ok {
 				return r.err
 			}
-			return fmt.Errorf("runtime: proses pid %d tidak reaped dalam grace+force (%s+%s)", s.identity.PID, grace, force)
+			// Tidak mungkin (remember selalu mendahului close) — fail
+			// loud alih-alih mengembalikan nil palsu.
+			panic("runtime: done tertutup tanpa memo — pelanggaran invariant reaper")
+		case <-deadline.C:
+			if r, ok := s.recall(); ok {
+				s.stopEscalation()
+				return r.err
+			}
+			// Benar-benar belum exit (bukan konsumen terlambat — konsumen
+			// terlambat tetap menemukan memo via recall di atas).
+			return fmt.Errorf(
+				"runtime: proses pid %d belum exit dalam grace+force (%s+%s); reaper tetap berjalan, hasil tersedia via Wait()",
+				s.identity.PID, grace, force)
 		}
+	}
+}
+
+// stopEscalation membatalkan timer Kill bila child sudah reaped sebelum
+// grace habis — Kill pada proses yang sudah exit memang no-op aman
+// (ErrProcessDone), tapi timer mati mencegah tembakan sisa yang tak perlu.
+func (s *Supervised) stopEscalation() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.escalate != nil {
+		s.escalate.Stop()
 	}
 }
 

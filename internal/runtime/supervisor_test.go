@@ -144,7 +144,7 @@ func TestTerminateIdempotent(t *testing.T) {
 	}
 }
 
-// 4. Failed-startup path (H5): child exit instan; monitor (konsumen channel)
+// 4. Failed-startup path (H5): child exit instan; monitor (observer Reaped())
 // melihat exit tanpa pernah memanggil Wait sendiri. Jalankan di bawah -race.
 func TestFailedStartupReapedViaChannel(t *testing.T) {
 	sleep := lookSleep(t)
@@ -153,7 +153,11 @@ func TestFailedStartupReapedViaChannel(t *testing.T) {
 	s := mustStart(t, sleep)
 
 	select {
-	case r := <-s.Reaped():
+	case <-s.Reaped(): // broadcast done: tertutup saat reaped
+		r, ok := s.recall()
+		if !ok {
+			t.Fatal("done tertutup tapi memo kosong — pelanggaran invariant remember->close")
+		}
 		if r.err == nil {
 			t.Fatal("exit instan harus menghasilkan error (usage), dapat nil")
 		}
@@ -161,7 +165,7 @@ func TestFailedStartupReapedViaChannel(t *testing.T) {
 			t.Fatal("waitResult tanpa exitedAt")
 		}
 	case <-time.After(3 * time.Second):
-		t.Fatal("monitor tidak melihat exit instan via channel reaping (H5 regresi)")
+		t.Fatal("monitor tidak melihat exit instan via Reaped() (H5 regresi)")
 	}
 
 	// Wait() setelahnya membaca memo, bukan Wait kedua.
@@ -170,7 +174,70 @@ func TestFailedStartupReapedViaChannel(t *testing.T) {
 	}
 }
 
-// 5. Start gagal untuk binary tak ada: error kembali, tanpa goroutine reaper.
+// 5. REGRESI review HIGH: dua Wait() konkuren yang MULAI SEBELUM child exit
+// — keduanya block di broadcast (memo belum terisi). Implementasi lama
+// mengirim hasil lewat channel satu-konsumen: konsumen kedua tidak pernah
+// dibangunkan dan hang selamanya. Pola done-close membangunkan semua waiter.
+func TestConcurrentWaitBeforeExit(t *testing.T) {
+	sleep := lookSleep(t)
+	s := mustStart(t, sleep, "0.3") // masih hidup saat Wait() dipanggil
+
+	const n = 4
+	errs := make(chan error, n)
+	for i := 0; i < n; i++ {
+		go func() { errs <- s.Wait() }()
+	}
+	var ref time.Time
+	for i := 0; i < n; i++ {
+		select {
+		case err := <-errs:
+			if err != nil {
+				t.Fatalf("exit normal sleep harus nil, dapat %v", err)
+			}
+			if at := s.ExitedAt(); at.IsZero() {
+				t.Fatal("ExitedAt zero setelah reaped")
+			} else if ref.IsZero() {
+				ref = at
+			} else if !at.Equal(ref) {
+				t.Fatal("ExitedAt beda antar konsumen — memo tidak konsisten")
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatal("Wait() konkuren hang sebelum child exit — broadcast done bocor (regresi HIGH)")
+		}
+	}
+}
+
+// 6. REGRESI review HIGH: campuran Wait + Terminate konkuren, keduanya mulai
+// SEBELUM child exit. Keduanya harus kembali (hang = fail di implementasi
+// lama), dan hasilnya satu reap yang sama.
+func TestWaitAndTerminateConcurrent(t *testing.T) {
+	sleep := lookSleep(t)
+	s := mustStart(t, sleep, "30")
+
+	te := make(chan error, 1)
+	tw := make(chan error, 1)
+	go func() { tw <- s.Wait() }()
+	go func() { te <- s.Terminate(500*time.Millisecond, 2*time.Second) }()
+
+	for _, ch := range []struct {
+		name string
+		ch   chan error
+	}{{"Wait", tw}, {"Terminate", te}} {
+		select {
+		case err := <-ch.ch:
+			if err == nil {
+				t.Fatalf("%s harus mengembalikan error signal child", ch.name)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatalf("%s konkuren hang — broadcast done bocor (regresi HIGH)", ch.name)
+		}
+	}
+	if s.recallExited() != syscall.SIGTERM {
+		t.Fatalf("child harus mati karena SIGTERM, dapat %v", s.recallExited())
+	}
+}
+
+// 7. Start gagal untuk binary tak ada: error kembali, tanpa goroutine reaper.
 func TestStartNonexistentFails(t *testing.T) {
 	if _, err := Start("avior-definitely-not-a-binary-xyz"); err == nil {
 		t.Fatal("Start binary tak ada harus error")
