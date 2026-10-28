@@ -36,6 +36,14 @@ go build ./...
 go test ./...
 ```
 
+### Queue flag (serve production)
+
+Untuk `serve production`, flag `--queue` bersifat otoritatif saat diisi:
+
+- `--queue=true` → Horizon selalu jalan.
+- `--queue=false` → Horizon **tidak pernah** jalan (fix review H1: dulu flag ini no-op).
+- flag tidak diisi → auto-detect dari evidence project (`plan.Horizon`).
+
 ## Migrasi sekali-jalan dari simpskba
 
 Instalasi simpskba lama di mesin dev perlu dibersihkan manual **satu kali**:
