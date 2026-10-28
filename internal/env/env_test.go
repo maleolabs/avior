@@ -31,6 +31,7 @@ func TestQuoteRoundTripSpecialChars(t *testing.T) {
 		{"backslash", `a\b\c`},
 		{"dollar", "$HOME ${VAR}"},
 		{"escape newline literal", `not\anewline`},
+		{"byte non-UTF-8", "pw\xff\xfe secret"},
 		{"tab dan CR", "a\tb\rc"},
 		{"kosong", ""},
 		{"plain", "simple-secret-123"},
@@ -132,6 +133,49 @@ func TestUpdateReplacesExistingKey(t *testing.T) {
 func TestUpdateInvalidKey(t *testing.T) {
 	if _, err := Update(nil, "9BAD KEY", "x"); err == nil {
 		t.Fatal("want error untuk key tidak valid")
+	}
+}
+
+func TestUpdateRemovesDuplicateKeys(t *testing.T) {
+	src := "DB_PASSWORD=lama\nDB_HOST=localhost\nDB_PASSWORD=rahasia\n"
+	out, err := Update(strings.NewReader(src), "DB_PASSWORD", "baru")
+	if err != nil {
+		t.Fatalf("Update error: %v", err)
+	}
+	if n := bytes.Count(out, []byte("DB_PASSWORD=")); n != 1 {
+		t.Fatalf("DB_PASSWORD muncul %d kali, want 1:\n%s", n, out)
+	}
+	entries, _ := Parse(bytes.NewReader(out))
+	var values []string
+	for _, e := range entries {
+		if e.Key == "DB_PASSWORD" {
+			values = append(values, e.Value)
+		}
+	}
+	if len(values) != 1 || values[0] != "baru" {
+		t.Fatalf("values = %q, want satu entri 'baru'", values)
+	}
+}
+
+func TestParseUnquotedHashIsComment(t *testing.T) {
+	// Sesuai phpdotenv: # mana pun di nilai unquoted memulai komentar.
+	entries, err := Parse(strings.NewReader("KEY=val#ue\n"))
+	if err != nil {
+		t.Fatalf("Parse error: %v", err)
+	}
+	if got := entries[0].Value; got != "val" {
+		t.Fatalf("got %q, want %q", got, "val")
+	}
+}
+
+func TestParseErrorTruncatesLineContent(t *testing.T) {
+	secret := "SUPERSECRETVALUE1234567890"
+	_, err := Parse(strings.NewReader("BROKEN_" + secret + "_NO_EQUALS\n"))
+	if err == nil {
+		t.Fatal("want error")
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Fatalf("error membocorkan isi baris: %v", err)
 	}
 }
 

@@ -38,7 +38,13 @@ func Parse(r io.Reader) ([]Entry, error) {
 		trimmed = strings.TrimPrefix(trimmed, "export ")
 		key, value, ok := strings.Cut(trimmed, "=")
 		if !ok {
-			return nil, fmt.Errorf("env: baris %d tidak valid (tanpa '='): %q", i+1, trimmed)
+			// ponytail: potong prefix agar isi baris (bisa secret) tidak ikut
+			// ke pesan error/log.
+			prefix := trimmed
+			if len(prefix) > 16 {
+				prefix = prefix[:16] + "…"
+			}
+			return nil, fmt.Errorf("env: baris %d tidak valid (tanpa '='): %q", i+1, prefix)
 		}
 		key = strings.TrimSpace(key)
 		if key == "" {
@@ -62,10 +68,9 @@ func parseValue(v string) string {
 		}
 		return strings.TrimPrefix(v, "'")
 	default:
-		// ponytail: komentar inline unquoted hanya dipotong pada " #" (spasi
-		// sebelum #) — cukup untuk file .env Laravel; perilaku penuh phpdotenv
-		// upgrade saat kebutuhan nyata muncul.
-		if i := strings.Index(v, " #"); i >= 0 {
+		// Sesuai phpdotenv: # mana pun di nilai unquoted memulai komentar —
+		// dipotong di # pertama agar nilai efektif sama dengan Laravel.
+		if i := strings.IndexByte(v, '#'); i >= 0 {
 			v = v[:i]
 		}
 		return strings.TrimSpace(v)
@@ -95,7 +100,10 @@ func unquoteDouble(v string) string {
 			b.WriteByte('\r')
 		case 't':
 			b.WriteByte('\t')
-		default: // \\ \" \$ dan escape tak dikenal
+		case '\\', '"', '$': // escape yang dihasilkan Quote
+			b.WriteByte(body[i])
+		default: // escape tak dikenal: dipertahankan apa adanya
+			b.WriteByte('\\')
 			b.WriteByte(body[i])
 		}
 	}
@@ -125,8 +133,10 @@ func Quote(value string) string {
 	var b strings.Builder
 	b.Grow(len(value) + 2)
 	b.WriteByte('"')
-	for _, r := range value {
-		switch r {
+	// Iterasi per byte (bukan per rune): secret bisa berisi byte non-UTF-8;
+	// range string akan menggantinya U+FFFD dan merusak nilai.
+	for i := 0; i < len(value); i++ {
+		switch value[i] {
 		case '\\':
 			b.WriteString(`\\`)
 		case '"':
@@ -140,7 +150,7 @@ func Quote(value string) string {
 		case '\t':
 			b.WriteString(`\t`)
 		default:
-			b.WriteRune(r)
+			b.WriteByte(value[i])
 		}
 	}
 	b.WriteByte('"')
@@ -164,10 +174,12 @@ func Marshal(entries []Entry) []byte {
 	return []byte(b.String())
 }
 
-// Update mengembalikan isi .env baru dengan key bernilai secret: nilai lama
-// diganti, atau entri ditambahkan di akhir bila belum ada. Komentar dan baris
-// kosong dipertahankan. Secret di-quote via Quote sehingga round-trip identik
-// meski mengandung #, spasi, kutip, atau newline. src boleh nil untuk file baru.
+// Update mengembalikan isi .env baru dengan key bernilai secret: entri pertama
+// diganti, duplikat berikutnya dihapus (dotenv last-win membuat nilai duplikat
+// lama tetap efektif bila dibiarkan), atau entri ditambahkan di akhir bila
+// belum ada. Komentar dan baris kosong dipertahankan. Secret di-quote via
+// Quote sehingga round-trip identik meski mengandung #, spasi, kutip, atau
+// newline. src boleh nil untuk file baru.
 func Update(src io.Reader, key, secret string) ([]byte, error) {
 	if err := ValidateKey(key); err != nil {
 		return nil, err
@@ -179,14 +191,23 @@ func Update(src io.Reader, key, secret string) ([]byte, error) {
 			return nil, err
 		}
 	}
-	for i := range entries {
-		if entries[i].Key == key {
-			entries[i].Value = secret
-			return Marshal(entries), nil
+	out := entries[:0]
+	found := false
+	for _, e := range entries {
+		if e.Key == key {
+			if !found {
+				e.Value = secret
+				found = true
+			} else {
+				continue // duplikat: buang, agar last-win tidak memulihkan nilai lama
+			}
 		}
+		out = append(out, e)
 	}
-	entries = append(entries, Entry{Key: key, Value: secret})
-	return Marshal(entries), nil
+	if !found {
+		out = append(out, Entry{Key: key, Value: secret})
+	}
+	return Marshal(out), nil
 }
 
 // ValidateKey memastikan nama variabel layak untuk .env (huruf/angka/underscore,
