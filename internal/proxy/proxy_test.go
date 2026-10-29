@@ -66,6 +66,14 @@ func TestFetchCaddyExtractsOnlyBinaryAndRejectsMissing(t *testing.T) {
 	}
 }
 
+func TestFetchCaddyHonorsCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := FetchCaddy(ctx, filepath.Join(t.TempDir(), "caddy")); err == nil {
+		t.Fatal("expected canceled download error")
+	}
+}
+
 func TestSelectCaddyPortKeepsAvailableConfiguredPort(t *testing.T) {
 	port := freePort(t)
 	got, err := SelectCaddyPort(port, 8000)
