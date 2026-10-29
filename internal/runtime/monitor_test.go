@@ -119,6 +119,40 @@ func TestStopRetainsStateWhenProcessRemainsAlive(t *testing.T) {
 	}
 }
 
+func TestStopTimeoutRetainsState(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	root := filepath.Join(t.TempDir(), "project")
+	statePath, _, err := state.Paths(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := state.RuntimeState{ProjectRoot: root, MainPID: state.Process{PID: 12345, Command: "sleep", StartedAt: time.Now()}}
+	if err := state.SaveState(statePath, st); err != nil {
+		t.Fatal(err)
+	}
+	err = stopWithHooks(root, func(time.Duration) {}, func(string, int) bool { return true }, func(state.Process) bool { return true }, 0)
+	want := "runtime: project " + root + " still running after stop timeout"
+	if err == nil || err.Error() != want {
+		t.Fatalf("error = %v, want %q", err, want)
+	}
+	got, exists, loadErr := state.LoadState(statePath)
+	if loadErr != nil || !exists || got.MainPID.PID != st.MainPID.PID {
+		t.Fatalf("state lost after timeout: exists=%v state=%+v err=%v", exists, got, loadErr)
+	}
+}
+
+func TestStopRejectsProjectStateMismatch(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	root := filepath.Join(t.TempDir(), "project")
+	statePath := mustStatePath(t, root)
+	if err := state.SaveState(statePath, state.RuntimeState{ProjectRoot: filepath.Join(t.TempDir(), "other"), MainPID: state.Process{PID: 12345}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Stop(root); err == nil || err.Error() != "runtime: project state mismatch" {
+		t.Fatalf("error = %v, want project mismatch", err)
+	}
+}
+
 func mustStatePath(t *testing.T, root string) string {
 	t.Helper()
 	path, _, err := state.Paths(root)
