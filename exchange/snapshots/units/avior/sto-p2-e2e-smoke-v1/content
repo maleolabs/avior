@@ -1,0 +1,1 @@
+{"description":"E2E smoke binary avior: doctor, setup development, serve development + virtual domain Caddy di Linux; smoke di Windows.","acceptanceCriteria":"Siklus doctor-setup-serve-stop sukses di Linux; smoke Windows tanpa error kritis; catatan hasil di note."}

@@ -1,0 +1,1 @@
+{"description":"Buat internal/brand: Name, HostsMarker, StateDir, CANickname, ArchivePrefix; semua referensi identitas konsumsi paket ini.","acceptanceCriteria":"Tidak ada literal nama tool di luar internal/brand (diuji test grep); test pin kontrak."}

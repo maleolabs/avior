@@ -1,0 +1,1 @@
+{"description":"Hapus sisa identitas simpskba dari kode; dokumentasikan catatan cleanup manual sekali (caddy untrust, hapus entry hosts # simpskba-managed, hapus ~/.local/share/simpskba).","acceptanceCriteria":"grep simpskba di repo avior hanya menyebut sejarah/referensi; README punya seksi migrasi sekali-jalan."}
