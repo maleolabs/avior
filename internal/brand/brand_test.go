@@ -1,28 +1,36 @@
 package brand
 
 import (
+	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
-// TestNoLiteralOutsideBrand dijalankan via eksternal; test ini mengunci
-// nilai kontrak brand itu sendiri.
+// TestContractValues mengunci nilai kontrak brand (ADR: adr:brand-contract).
 func TestContractValues(t *testing.T) {
 	if Name != "avior" {
 		t.Fatalf("Name = %q, want avior", Name)
 	}
-	if !strings.Contains(StateDir(), Name) {
-		t.Fatalf("StateDir() = %q, harus mengandung nama tool", StateDir())
+	if HostsMarker != "# avior-managed" {
+		t.Fatalf("HostsMarker = %q, want %q", HostsMarker, "# avior-managed")
+	}
+	if CANickname != "Avior Local CA" {
+		t.Fatalf("CANickname = %q, want %q", CANickname, "Avior Local CA")
 	}
 	if got := ArchivePrefix(); got != "avior-" {
-		t.Fatalf("ArchivePrefix() = %q", got)
+		t.Fatalf("ArchivePrefix() = %q, want avior-", got)
 	}
-	_ = filepath.Join // keep import stable
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("os.UserHomeDir: %v", err)
+	}
+	if want := filepath.Join(home, ".local", "share", "avior"); StateDir() != want {
+		t.Fatalf("StateDir() = %q, want %q", StateDir(), want)
+	}
 }
 
 func TestHostsMarkerFormat(t *testing.T) {
-	if !strings.HasPrefix(HostsMarker, "# ") {
+	if len(HostsMarker) < 3 || HostsMarker[0] != '#' || HostsMarker[1] != ' ' {
 		t.Fatalf("HostsMarker harus komentar: %q", HostsMarker)
 	}
 }
