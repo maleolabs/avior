@@ -195,6 +195,10 @@ func TestVerifyPATHOnlyInVerify(t *testing.T) {
 	allow := map[string]bool{
 		filepath.Join("internal", "proxy", "verify.go"):      true,
 		filepath.Join("internal", "proxy", "verify_test.go"): true,
+		// e2e/e2e_test.go: harness smoke memverifikasi binary Caddy hasil
+		// unduhan lewat gate dev (bukan managed) — disengaja, lihat
+		// sto:p2-e2e-smoke.
+		filepath.Join("e2e", "e2e_test.go"): true,
 	}
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
