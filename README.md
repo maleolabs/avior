@@ -38,6 +38,30 @@ go test ./...
 go test -race ./...
 ```
 
+## Instalasi
+
+### go install (butuh Go 1.24+)
+
+```sh
+go install github.com/maleolabs/avior@latest
+```
+
+Binary Caddy tidak ikut terpasang lewat jalur ini — CLI mengunduhnya
+otomatis saat pertama dibutuhkan dan memverifikasinya terhadap pin checksum
+yang tertanam saat build (lihat "Checksum distribusi" di bawah).
+
+### Arsip rilis (tanpa Go)
+
+Unduh `avior-<versi>-<os>-<arch>.tar.gz` (Linux/macOS) atau `.zip`
+(Windows) dari halaman releases, lalu ekstrak:
+
+- **Linux/macOS** — `./setup.sh <perintah>` (mis. `./setup.sh doctor`)
+- **Windows** — `setup.ps1 <perintah>` atau `setup.bat <perintah>`
+
+Launcher menjalankan binary `avior` dari direktori arsipnya sendiri —
+tidak perlu menambah apa pun ke PATH. Arsip juga memuat binary Caddy
+terpin di `bin/`.
+
 ## Checksum distribusi
 
 Setiap rilis menyertakan `SHA256SUMS` berisi checksum seluruh arsip

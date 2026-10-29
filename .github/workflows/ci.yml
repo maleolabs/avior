@@ -77,9 +77,11 @@ jobs:
               || { echo "Caddy ${target} tidak cocok pin internal/proxy/pins.go"; exit 1; }
             name="avior-${GITHUB_REF_NAME}-${os}-${arch}"
             if [[ ${os} == windows ]]; then
-              (cd "${stage}" && zip -q "../../dist/${name}.zip" avior.exe bin/caddy_${os}_${arch}.exe)
+              cp release/setup.ps1 release/setup.bat "${stage}/"
+              (cd "${stage}" && zip -q "../../dist/${name}.zip" avior.exe bin/caddy_${os}_${arch}.exe setup.ps1 setup.bat)
             else
-              tar -czf "dist/${name}.tar.gz" -C "${stage}" avior bin
+              cp release/setup.sh "${stage}/"
+              tar -czf "dist/${name}.tar.gz" -C "${stage}" avior bin setup.sh
             fi
           done
           # Kontrak A — release-artifact: SHA256SUMS co-located di release.
