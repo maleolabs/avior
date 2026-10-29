@@ -290,7 +290,13 @@ func Validate(values map[string]string, m mode.Mode) error {
 	if m == mode.ModeProduction && strings.EqualFold(values["APP_DEBUG"], "true") {
 		return fmt.Errorf("APP_DEBUG harus false di production")
 	}
-	if values["DB_CONNECTION"] != "sqlite" {
+	driver := strings.ToLower(strings.TrimSpace(values["DB_CONNECTION"]))
+	switch driver {
+	case "mysql", "mariadb", "pgsql", "postgres", "sqlite":
+	default:
+		return fmt.Errorf("DB_CONNECTION harus mysql, mariadb, pgsql, postgres, atau sqlite")
+	}
+	if driver != "sqlite" {
 		for _, key := range []string{"DB_HOST", "DB_DATABASE", "DB_USERNAME"} {
 			if strings.TrimSpace(values[key]) == "" {
 				return fmt.Errorf("%s wajib diisi untuk database %s", key, values["DB_CONNECTION"])

@@ -436,18 +436,49 @@ func (r *run) ensureAppKey() error {
 }
 
 func (r *run) ensureDatabaseConfig() error {
-	if r.values["DB_CONNECTION"] == "sqlite" {
+	driver := strings.ToLower(strings.TrimSpace(r.values["DB_CONNECTION"]))
+	if driver == "" && !r.o.Yes {
+		fmt.Fprintln(r.o.Out, "  ╭─ Database driver: mysql, mariadb, pgsql, sqlite")
+		for {
+			fmt.Fprint(r.o.Out, "  │  Driver [sqlite]: ")
+			value, err := readLine(r.o.In)
+			if err != nil && strings.TrimSpace(value) == "" {
+				return fmt.Errorf("baca DB_CONNECTION: %w", err)
+			}
+			value = strings.ToLower(strings.TrimSpace(value))
+			if value == "" {
+				value = "sqlite"
+			}
+			if value == "postgres" {
+				value = "pgsql"
+			}
+			if value != "mysql" && value != "mariadb" && value != "pgsql" && value != "sqlite" {
+				fmt.Fprintln(r.o.Out, "  │  Pilihan tidak valid.")
+				continue
+			}
+			if err := r.setEnv("DB_CONNECTION", value); err != nil {
+				return fmt.Errorf("simpan DB_CONNECTION: %w", err)
+			}
+			driver = value
+			break
+		}
+	}
+	if driver == "sqlite" {
 		return nil
 	}
 	if r.o.Yes {
-		return nil // env.Validate melempar error lengkap untuk field yang kurang.
+		return nil // env.Validate checks fields for non-interactive setup.
 	}
 	fmt.Fprintln(r.o.Out, "  ╭─ Konfigurasi database")
 	fmt.Fprintln(r.o.Out, "  │  Isi koneksi database. Password boleh dikosongkan dengan menekan Enter atau memasukkan -.")
 	fmt.Fprintln(r.o.Out, "  │")
-	for _, item := range []struct{ key, label string }{
+	items := []struct{ key, label string }{
 		{"DB_HOST", "Database host"}, {"DB_DATABASE", "Database name"}, {"DB_USERNAME", "Database user"},
-	} {
+	}
+	if driver == "pgsql" {
+		items[0].label = "Database host"
+	}
+	for _, item := range items {
 		if err := r.promptValue(item.key, item.label); err != nil {
 			return err
 		}
