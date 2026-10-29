@@ -1,7 +1,7 @@
 // SINGLE-WAIT OWNERSHIP INVARIANT (fix review H5: double-Wait race).
 //
 // TEPAT SATU goroutine per Supervised yang memanggil cmd.Wait() — goroutine
-// reaper yang di-spawn di Start(). Pihak lain (startup monitor, Terminate,
+// reaper yang di-spawn di StartCmd(). Pihak lain (startup monitor, Terminate,
 // Wait(), serve loop) WAJIB menunggu via Wait()/Terminate()/Reaped() —
 // JANGAN pernah memanggil cmd.Wait() sendiri. Wait kedua pada child yang
 // sama menghasilkan "waitid: no child processes" / error tak terduga karena
@@ -15,11 +15,7 @@
 // kan. Karena itu hasil reaping disebarkan via channel `done` yang di-close:
 // close membangunkan SEMUA waiter sekaligus, dan setiap waiter membaca memo
 // (terjamin terisi: remember() selalu mendahului close(done)).
-//
-// catatan: split ke internal/processgroup (registry identity-checked +
-// privilege + process-group kill) terjadi di work item p1-foundation; di
-// sini supervisor tinggal inti Wait-ownership dalam package runtime.
-package runtime
+package processgroup
 
 import (
 	"fmt"
@@ -32,8 +28,8 @@ import (
 )
 
 // waitResult adalah hasil reap satu proses. ponytail: tetap unexported
-// karena startup monitor tinggal in-package; export WaitResult saat monitor
-// pindah ke internal/processgroup di p1.
+// sampai monitor per-proyek butuh detail hasil lintas package; export
+// WaitResult saat monitor dibangun di atas state + processgroup.
 type waitResult struct {
 	err      error
 	exitedAt time.Time
@@ -58,9 +54,15 @@ type Supervised struct {
 // Start menjalankan command (args-list saja, tanpa shell — konvensi repo)
 // dan men-spawn TEPAT SATU goroutine reaper pemilik cmd.Wait().
 func Start(name string, args ...string) (*Supervised, error) {
-	cmd := exec.Command(name, args...) // ponytail: no extra config (env/dir) yet — add when serve needs it
+	return StartCmd(exec.Command(name, args...))
+}
+
+// StartCmd menjalankan cmd yang sudah dikonfigurasi pemanggil (Dir, Env,
+// Stdout) dengan kontrak kepemilikan Wait yang sama dengan Start.
+func StartCmd(cmd *exec.Cmd) (*Supervised, error) {
+	ConfigureProcessGroup(cmd) // pid == pgid: sinyal menjangkau subtree child
 	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("runtime: start %s: %w", name, err)
+		return nil, fmt.Errorf("processgroup: start %s: %w", cmd.Path, err)
 	}
 	s := &Supervised{
 		cmd:  cmd,
@@ -84,7 +86,7 @@ func Start(name string, args ...string) (*Supervised, error) {
 }
 
 // Identity mengembalikan identitas proses tercatat (konvensi registry:
-// verifikasi identitas sebelum sinyal; kill by-PID-only ada di processgroup).
+// verifikasi identitas sebelum sinyal; jangan kill by-PID-only).
 func (s *Supervised) Identity() state.Process { return s.identity }
 
 // PID adalah PID child (untuk logging/registry; JANGAN dipakai untuk sinyal
@@ -94,11 +96,7 @@ func (s *Supervised) PID() int { return s.identity.PID }
 // Reaped mengembalikan channel yang di-close saat child reaped (broadcast:
 // membangunkan semua observer, bukan sekali untuk satu penerima). Detail
 // hasil (error, waktu exit) diambil lewat Wait()/ExitedAt() yang memakai
-// memo — JANGAN mencoba memungut hasil dari channel ini. Konsumen in-package
-// (startup monitor, serve loop) juga memakai pasangan ini;
-// ponytail: Reaped mengembalikan <chan struct{}> (bukan waitResult) agar API
-// jujur terhadap package luar — upgrade path: export WaitResult saat monitor
-// pindah ke internal/processgroup di p1.
+// memo — JANGAN mencoba memungut hasil dari channel ini.
 func (s *Supervised) Reaped() <-chan struct{} { return s.done }
 
 // Wait menunggu exit child via broadcast done (BUKAN cmd.Wait). Hasilnya
@@ -125,7 +123,7 @@ func (s *Supervised) consume() waitResult {
 	r, ok := s.recall()
 	if !ok {
 		// Tidak mungkin: close(done) hanya terjadi setelah remember().
-		panic("runtime: done tertutup tanpa memo — pelanggaran invariant reaper")
+		panic("processgroup: done tertutup tanpa memo — pelanggaran invariant reaper")
 	}
 	return r
 }
@@ -147,20 +145,15 @@ func (s *Supervised) recall() (waitResult, bool) {
 	return *s.result, true
 }
 
-// Terminate menghentikan child: sinyal graceful, tunggu reaped hingga grace,
-// eskalasi Kill, tunggu hingga force lagi. Idempotent — Terminate ganda aman
-// (sinyal + eskalasi dijalankan sekali via terminateOnce; pemanggil kedua
-// menunggu broadcast done yang sama). Reap TETAP milik satu goroutine
-// reaper; Terminate hanya mengonsumsi broadcast.
+// Terminate menghentikan child: sinyal graceful ke process group, tunggu
+// reaped hingga grace, eskalasi Kill ke process group, tunggu hingga force
+// lagi. Idempotent — Terminate ganda aman (sinyal + eskalasi dijalankan
+// sekali via terminateOnce; pemanggil kedua menunggu broadcast done yang
+// sama), dan untuk pemanggil konkuren parameter grace/force dari pemanggil
+// PERTAMA yang menang. Reap TETAP milik satu goroutine reaper; Terminate
+// hanya mengonsumsi broadcast.
 func (s *Supervised) Terminate(grace, force time.Duration) error {
-	s.terminateOnce.Do(func() {
-		// Sinyal graceful; error diabaikan secara sadar — child mungkin
-		// sudah exit sendiri, dan eskalasi tetap menutup kasus itu.
-		_ = s.signalGraceful()
-		s.escalate = time.AfterFunc(grace, func() {
-			_ = s.cmd.Process.Kill() // ponytail: no process-group kill yet — lands with internal/processgroup at p1
-		})
-	})
+	s.BeginTerminate(grace, force)
 	deadline := time.NewTimer(grace + force)
 	defer deadline.Stop()
 	for {
@@ -176,7 +169,7 @@ func (s *Supervised) Terminate(grace, force time.Duration) error {
 			}
 			// Tidak mungkin (remember selalu mendahului close) — fail
 			// loud alih-alih mengembalikan nil palsu.
-			panic("runtime: done tertutup tanpa memo — pelanggaran invariant reaper")
+			panic("processgroup: done tertutup tanpa memo — pelanggaran invariant reaper")
 		case <-deadline.C:
 			if r, ok := s.recall(); ok {
 				s.stopEscalation()
@@ -185,10 +178,25 @@ func (s *Supervised) Terminate(grace, force time.Duration) error {
 			// Benar-benar belum exit (bukan konsumen terlambat — konsumen
 			// terlambat tetap menemukan memo via recall di atas).
 			return fmt.Errorf(
-				"runtime: proses pid %d belum exit dalam grace+force (%s+%s); reaper tetap berjalan, hasil tersedia via Wait()",
+				"processgroup: proses pid %d belum exit dalam grace+force (%s+%s); reaper tetap berjalan, hasil tersedia via Wait()",
 				s.identity.PID, grace, force)
 		}
 	}
+}
+
+// BeginTerminate menjadwalkan sinyal graceful + timer eskalasi Kill tepat
+// sekali (terminateOnce) TANPA menunggu exit. Dipakai stopAll agar SIGTERM
+// terkirim ke semua child sebelum ada pemanggil yang menunggu. Untuk
+// pemanggil konkuren, parameter grace/force pemanggil pertama yang menang.
+func (s *Supervised) BeginTerminate(grace, force time.Duration) {
+	s.terminateOnce.Do(func() {
+		// Sinyal graceful; error diabaikan secara sadar — child mungkin
+		// sudah exit sendiri, dan eskalasi tetap menutup kasus itu.
+		_ = s.signalGraceful()
+		s.escalate = time.AfterFunc(grace, func() {
+			_ = KillGroup(s.cmd.Process.Pid)
+		})
+	})
 }
 
 // stopEscalation membatalkan timer Kill bila child sudah reaped sebelum
@@ -202,11 +210,16 @@ func (s *Supervised) stopEscalation() {
 	}
 }
 
-// signalGraceful mengirim SIGTERM. Windows tidak mendukung SIGTERM —
-// fail-closed ke Kill (graceful Windows via job object menyusul di p1).
+// signalGraceful mengirim SIGTERM ke process group child (pid == pgid karena
+// Setpgid di StartCmd) agar subtree ikut menerima sinyal — semantik legacy
+// terminateProcess. Windows tidak mendukung sinyal — fail-closed ke Kill
+// (graceful Windows via job object menyusul).
 func (s *Supervised) signalGraceful() error {
-	if err := s.cmd.Process.Signal(syscall.SIGTERM); err != nil {
-		return s.cmd.Process.Kill()
+	if err := SignalGroup(s.cmd.Process.Pid, syscall.SIGTERM); err == nil {
+		return nil
 	}
-	return nil
+	if err := s.cmd.Process.Signal(syscall.SIGTERM); err == nil {
+		return nil
+	}
+	return s.cmd.Process.Kill()
 }
