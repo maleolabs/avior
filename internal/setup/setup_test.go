@@ -96,12 +96,12 @@ func TestPipelineComposition(t *testing.T) {
 	wantDev := []string{
 		"doctor", "env", "preflight", "runtime-dirs",
 		"deps:php", "deps:js",
-		"app:key", "db:config", "env:validate", "superadmin:password",
+		"app:key", "db:config", "env:validate",
 		"assets:build", "db:migrate", "storage:link", "cache:clear", "done",
 	}
 	wantProd := []string{
 		"doctor", "env", "env:production-flags", "preflight", "runtime-dirs",
-		"app:key", "db:config", "env:validate", "superadmin:password",
+		"app:key", "db:config", "env:validate",
 		"db:migrate", "db:seed", "storage:link", "cache:optimize", "done",
 	}
 	if strings.Join(dev, ",") != strings.Join(wantDev, ",") {
@@ -111,7 +111,7 @@ func TestPipelineComposition(t *testing.T) {
 		t.Fatalf("pipeline prod = %v, want %v", prod, wantProd)
 	}
 	// dev dan prod harus komposisi dari basis step yang sama.
-	for _, name := range []string{"doctor", "env", "app:key", "db:config", "env:validate", "superadmin:password"} {
+	for _, name := range []string{"doctor", "env", "app:key", "db:config", "env:validate"} {
 		if !contains(dev, name) || !contains(prod, name) {
 			t.Fatalf("step %s harus ada di kedua mode", name)
 		}
@@ -276,7 +276,7 @@ func TestSetupAbortedWhenEnvDeclined(t *testing.T) {
 	}
 }
 
-func TestNonInteractiveRequiresPresetPassword(t *testing.T) {
+func TestGenericProjectDoesNotRequireBootstrapPassword(t *testing.T) {
 	root := fixture(t, "APP_ENV=development\nDB_CONNECTION=sqlite\n")
 	var out bytes.Buffer
 	err := Run(Options{
@@ -284,8 +284,8 @@ func TestNonInteractiveRequiresPresetPassword(t *testing.T) {
 		In: strings.NewReader(""), Out: &out,
 		ReadEnv: env.ReadFile, Runner: &fakeRunner{},
 	})
-	if err == nil || !strings.Contains(err.Error(), "INITIAL_SUPERADMIN_PASSWORD wajib diisi") {
-		t.Fatalf("err = %v, want fail-closed INITIAL_SUPERADMIN_PASSWORD", err)
+	if err != nil {
+		t.Fatalf("generic setup: %v", err)
 	}
 }
 
@@ -297,7 +297,7 @@ func TestMultipleDbPromptsFromOneReader(t *testing.T) {
 	root := fixture(t,
 		"APP_KEY=base64:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa=\n"+
 			"APP_ENV=development\nDB_CONNECTION=mysql\n"+
-			"INITIAL_SUPERADMIN_PASSWORD=supersecret-panjang-12\n")
+			"")
 	var out bytes.Buffer
 	runner := &fakeRunner{}
 	err := Run(Options{

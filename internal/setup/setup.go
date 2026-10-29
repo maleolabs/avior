@@ -14,7 +14,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/maleolabs/avior/internal/brand"
 	"github.com/maleolabs/avior/internal/detect"
@@ -87,7 +86,6 @@ func Pipeline(m mode.Mode) []Step {
 		Step{Name: "app:key", Desc: "Pastikan APP_KEY terisi", Mutating: true, Run: (*run).ensureAppKey},
 		Step{Name: "db:config", Desc: "Lengkapi konfigurasi database bila perlu", Mutating: true, Run: (*run).ensureDatabaseConfig},
 		Step{Name: "env:validate", Desc: "Validasi .env terhadap mode", Run: (*run).validateEnv},
-		Step{Name: "superadmin:password", Desc: "Tentukan INITIAL_SUPERADMIN_PASSWORD", Mutating: true, Run: (*run).ensureBootstrapPassword},
 	)
 	if m == mode.ModeDevelopment {
 		steps = append(steps,
@@ -463,52 +461,6 @@ func (r *run) validateEnv() error {
 		return fmt.Errorf("validasi .env: %w", err)
 	}
 	return nil
-}
-
-// ensureBootstrapPassword memastikan password superadmin awal tersedia.
-// Non-interactive (yes) fail-closed: tanpa password di .env, setup berhenti —
-// seeder production fail-closed juga bila password tidak ada.
-func (r *run) ensureBootstrapPassword() error {
-	if strings.TrimSpace(r.values["INITIAL_SUPERADMIN_PASSWORD"]) != "" {
-		return nil
-	}
-	if r.o.Yes {
-		return fmt.Errorf("INITIAL_SUPERADMIN_PASSWORD wajib diisi di .env untuk mode non-interactive (minimal 12 karakter)")
-	}
-	fmt.Fprintln(r.o.Out, "  ╭─ Akun Superadmin")
-	fmt.Fprintln(r.o.Out, "  │  Tentukan password awal untuk login Superadmin. Minimal 12 karakter.")
-	fmt.Fprintln(r.o.Out, "  │")
-	for {
-		fmt.Fprintf(r.o.Out, "  │  %-24s ", "Password awal login Superadmin:")
-		password, err := r.readPassword()
-		if err != nil {
-			return fmt.Errorf("baca password bootstrap: %w", err)
-		}
-		fmt.Fprintf(r.o.Out, "  │  %-24s ", "Ulangi password Superadmin:")
-		confirmation, confirmErr := r.readPassword()
-		if confirmErr != nil {
-			return fmt.Errorf("baca konfirmasi password bootstrap: %w", confirmErr)
-		}
-
-		var problem string
-		switch {
-		case !utf8.ValidString(password):
-			problem = "Password Superadmin tidak valid: format password tidak didukung."
-		case utf8.RuneCountInString(password) < 12:
-			problem = "Password Superadmin tidak valid: minimal 12 karakter."
-		case password != confirmation:
-			problem = "Konfirmasi password Superadmin tidak cocok."
-		}
-		if problem != "" {
-			fmt.Fprintf(r.o.Out, "  │  ⚠ %s\n", problem)
-			continue
-		}
-		if err := r.setEnv("INITIAL_SUPERADMIN_PASSWORD", password); err != nil {
-			return fmt.Errorf("simpan password bootstrap: %w", err)
-		}
-		fmt.Fprintln(r.o.Out, "  ╰─")
-		return nil
-	}
 }
 
 func (r *run) buildAssets() error {
