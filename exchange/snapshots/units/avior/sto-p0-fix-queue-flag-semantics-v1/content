@@ -1,0 +1,1 @@
+{"description":"Putuskan satu intent flag --queue di serve production (flag otoritatif ATAU auto-detect); kondisi runtime.go:279 (o.Queue ","acceptanceCriteria":"| plan.Horizon) \u0026\u0026 plan.Horizon ekuivalen plan.Horizon membuat flag no-op.|serve production --queue=false TIDAK men-start Horizon; test TestCommandsProductionQueueFlag ada; README selaras dengan kode."}

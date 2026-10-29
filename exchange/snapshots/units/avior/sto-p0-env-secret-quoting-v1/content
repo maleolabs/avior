@@ -1,0 +1,1 @@
+{"description":"env.Update menulis secret aman dotenv (double-quote + escape), prompt password memperingatkan/menolak karakter # \" ' spasi newline; H6.","acceptanceCriteria":"env.Update menghasilkan .env yang dibaca identik oleh Laravel dotenv untuk password berisi # spasi kutip; test env.Update karakter khusus ada."}

@@ -1,0 +1,1 @@
+{"description":"CLI memverifikasi binary Caddy (versi + checksum manifest) sebelum dipakai — khususnya sebelum caddy trust yang berjalan sudo; PATH fallback dibatasi dev dengan warning; H3.","acceptanceCriteria":"caddy trust menolak binary tak terverifikasi; caddy version harus match const; test verifier."}

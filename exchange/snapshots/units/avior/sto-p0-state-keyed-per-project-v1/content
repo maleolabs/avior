@@ -1,0 +1,1 @@
+{"description":"State runtime (runtime-state.json, runtime-processes.json) keyed per project root (hash abs path); H2.","acceptanceCriteria":"Dua serve paralel di dua checkout tidak saling menimpa state; StopManagedRuntime hanya mengenali runtime project sendiri; test paralel ada."}

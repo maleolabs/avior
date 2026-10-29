@@ -1,0 +1,1 @@
+{"objective":"F0 — stabilisasi: fix temuan HIGH dari review simpskba sebelum refactor/rebrand.","workItems":"p0-fix-queue-flag-semantics; p0-env-secret-quoting; p0-fix-double-wait-race; p0-state-keyed-per-project; p0-verify-caddy-binary","changeLog":"2026-10-28 dibuat dari plan:avior-transformation (approved)."}

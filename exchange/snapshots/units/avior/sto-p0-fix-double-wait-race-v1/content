@@ -1,0 +1,1 @@
+{"description":"Pisahkan ownership goroutine cmd.Wait antara loop start (runtime.go:449-462) dan terminateAndWait (834-841) — reaping via channel; H5.","acceptanceCriteria":"go test -race bersih pada path gagal startup; satu pola Wait di seluruh supervisor; test integrasi terminate dengan child sleep-stub."}
