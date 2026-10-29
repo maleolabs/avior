@@ -153,6 +153,28 @@ func TestStopRejectsProjectStateMismatch(t *testing.T) {
 	}
 }
 
+func TestMonitorRejectsStatePathProjectMismatch(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	root := filepath.Join(t.TempDir(), "project")
+	if err := state.SaveState(mustStatePath(t, root), state.RuntimeState{ProjectRoot: filepath.Join(t.TempDir(), "other")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Monitor(); err == nil || err.Error() != "runtime: project state mismatch" {
+		t.Fatalf("error = %v, want project mismatch", err)
+	}
+}
+
+func TestAttachRejectsProjectStateMismatch(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	root := filepath.Join(t.TempDir(), "project")
+	if err := state.SaveState(mustStatePath(t, root), state.RuntimeState{ProjectRoot: filepath.Join(t.TempDir(), "other")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Attach(root); err == nil || err.Error() != "runtime: project state mismatch" {
+		t.Fatalf("error = %v, want project mismatch", err)
+	}
+}
+
 func mustStatePath(t *testing.T, root string) string {
 	t.Helper()
 	path, _, err := state.Paths(root)

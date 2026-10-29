@@ -43,9 +43,12 @@ func Monitor() ([]ProjectStatus, error) {
 		if !exists || st.ProjectRoot == "" {
 			continue
 		}
-		_, registry, err := state.Paths(st.ProjectRoot)
+		projectStatePath, registry, err := state.Paths(st.ProjectRoot)
 		if err != nil {
 			return nil, err
+		}
+		if filepath.Clean(projectStatePath) != filepath.Clean(path) {
+			return nil, fmt.Errorf("runtime: project state mismatch")
 		}
 		services, _, err := state.LoadProcesses(registry)
 		if err != nil {
@@ -69,6 +72,16 @@ func Attach(project string) (ProjectStatus, error) {
 	}
 	if !exists {
 		return ProjectStatus{ProjectRoot: project}, nil
+	}
+	canonicalRoot, err := filepath.Abs(project)
+	if err != nil {
+		return ProjectStatus{}, err
+	}
+	if resolved, resolveErr := filepath.EvalSymlinks(canonicalRoot); resolveErr == nil {
+		canonicalRoot = resolved
+	}
+	if filepath.Clean(st.ProjectRoot) != filepath.Clean(canonicalRoot) {
+		return ProjectStatus{}, fmt.Errorf("runtime: project state mismatch")
 	}
 	services, _, err := state.LoadProcesses(registry)
 	if err != nil {
