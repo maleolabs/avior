@@ -98,6 +98,10 @@ func removeWindowsTrust(path string) error {
 			break
 		}
 		ctx = r
+		// ponytail: unsafe.Pointer(uintptr dari syscall return) memicu vet Windows
+		// "possible misuse of unsafe.Pointer"; pattern syscall-context disengaja
+		// (CertEnumCertificatesInStore). Fix benar = golang.org/x/sys/windows atau
+		// restructure handle context — kerjakan bila Windows trust masuk jalur rilis.
 		c := (*certContext)(unsafe.Pointer(r))
 		der := unsafe.Slice(c.encoded, c.encodedLen)
 		if string(der) == string(b) {
