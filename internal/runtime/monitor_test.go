@@ -92,6 +92,33 @@ func TestStopStopsManagedRuntimeProcess(t *testing.T) {
 	}
 }
 
+func TestStopRetainsStateWhenProcessRemainsAlive(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	root := filepath.Join(t.TempDir(), "project")
+	statePath, _, err := state.Paths(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("sleep", "60")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
+	st := state.RuntimeState{ProjectRoot: root, MainPID: state.Process{PID: cmd.Process.Pid, Command: "sleep", StartedAt: time.Now()}}
+	if err := state.SaveState(statePath, st); err != nil {
+		t.Fatal(err)
+	}
+
+	err = stop(root, func(time.Duration) {})
+	if err == nil {
+		t.Fatal("stop succeeded while process remained alive")
+	}
+	got, exists, loadErr := state.LoadState(statePath)
+	if loadErr != nil || !exists || got.MainPID.PID != st.MainPID.PID {
+		t.Fatalf("state lost after failed stop: exists=%v state=%+v err=%v", exists, got, loadErr)
+	}
+}
+
 func mustStatePath(t *testing.T, root string) string {
 	t.Helper()
 	path, _, err := state.Paths(root)
