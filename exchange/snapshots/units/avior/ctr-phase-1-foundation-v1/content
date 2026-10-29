@@ -1,0 +1,1 @@
+{"objective":"F1 — refactor fondasi: pecah god package runtime, satu parser .env, tipe Mode, setup step-pipeline, writer injection.","workItems":"p1-split-runtime-package; p1-single-env-parser; p1-mode-type; p1-setup-step-pipeline; p1-writer-injection","changeLog":"2026-10-28 dibuat dari plan:avior-transformation (approved)."}

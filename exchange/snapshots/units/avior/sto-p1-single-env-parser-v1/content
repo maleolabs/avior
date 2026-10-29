@@ -1,0 +1,1 @@
+{"description":"Habiskan duplikasi parser .env 3x (env.Read, runtime.dotenvValues, discovery.env) menjadi satu pkg env dengan ReadEffective.","acceptanceCriteria":"Hanya satu parser .env di codebase; nilai kutip asimetris/trailing-comment dibaca konsisten antar lapis; test parser."}

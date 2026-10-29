@@ -1,0 +1,1 @@
+{"description":"Tipe Mode + validator tunggal menggantikan validasi string development/production di 6 lokasi; policy production (normalizeServeOptions) pindah ke layer runtime.","acceptanceCriteria":"Validasi mode hanya di satu tempat; tipe Mode dipakai semua paket; test policy."}

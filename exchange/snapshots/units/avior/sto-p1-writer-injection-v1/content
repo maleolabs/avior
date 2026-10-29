@@ -1,0 +1,1 @@
+{"description":"Semua render output (Runner, doctor, error card) menerima io.Writer injectable; satu interface error rendering (ReportedError).","acceptanceCriteria":"Tidak ada fmt.Printf langsung ke os.Stdout di paket domain; test render dengan buffer."}

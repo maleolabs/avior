@@ -1,0 +1,1 @@
+{"description":"Pecah god package internal/runtime (~3000 L) sesuai arc:avior-architecture: processgroup, trust, proxy, hostname, state; Run() jadi orchestrator Plan-Launch-Supervise.","acceptanceCriteria":"Tidak ada paket internal/runtime monolitik; dependency linear tanpa cycle; semua test lama lulus setelah pemindahan."}

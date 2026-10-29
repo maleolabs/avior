@@ -1,0 +1,1 @@
+{"description":"Ubah setup.RunWithRunner menjadi model step-pipeline (daftar step, bukan dua blok if mode); single-pass env read; dry-run coverage semua step.","acceptanceCriteria":"Setup dev/prod = komposisi step; env.Read dipanggil 1x per run; dry-run mencetak seluruh pipeline termasuk validasi; test pipeline."}
