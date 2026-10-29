@@ -285,7 +285,7 @@ func TestGenericProjectDoesNotRequireBootstrapPassword(t *testing.T) {
 		ReadEnv: env.ReadFile, Runner: &fakeRunner{},
 	})
 	if err != nil {
-		t.Fatalf("generic setup: %v", err)
+		t.Fatalf("generic project setup: %v", err)
 	}
 }
 
@@ -297,7 +297,7 @@ func TestMultipleDbPromptsFromOneReader(t *testing.T) {
 	root := fixture(t,
 		"APP_KEY=base64:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa=\n"+
 			"APP_ENV=development\nDB_CONNECTION=mysql\n"+
-			"")
+		"")
 	var out bytes.Buffer
 	runner := &fakeRunner{}
 	err := Run(Options{

@@ -463,6 +463,9 @@ func (r *run) validateEnv() error {
 	return nil
 }
 
+// ensureBootstrapPassword memastikan password superadmin awal tersedia.
+// Non-interactive (yes) fail-closed: tanpa password di .env, setup berhenti —
+// seeder production fail-closed juga bila password tidak ada.
 func (r *run) buildAssets() error {
 	if err := runStep(r.o.Runner, "Building frontend assets", "npm", "run", "build"); err != nil {
 		return fmt.Errorf("npm build: %w", err)
