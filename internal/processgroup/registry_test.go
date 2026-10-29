@@ -66,6 +66,34 @@ func TestUnregisterProcessRemovesOnlyExactRegistration(t *testing.T) {
 	}
 }
 
+func TestStopManagedProcessRefusesChangedIdentity(t *testing.T) {
+	cmd := exec.Command("sleep", "60")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
+	path := filepath.Join(t.TempDir(), "runtime-processes.json")
+	unregister, err := RegisterProcess(path, "sleep 60", cmd.Process.Pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unregister()
+	records, err := readProcessRegistry(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	records[0].Identity = "deliberately-changed"
+	if err := writeProcessRegistry(path, records); err != nil {
+		t.Fatal(err)
+	}
+	if StopManagedProcess(path, cmd.Process.Pid) {
+		t.Fatal("stop accepted changed process identity")
+	}
+	if !ProcessAlive(state.Process{PID: cmd.Process.Pid, Command: "sleep", StartedAt: time.Now()}) {
+		t.Fatal("process stopped despite changed identity")
+	}
+}
+
 func TestProjectRegistriesRemainIsolated(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
