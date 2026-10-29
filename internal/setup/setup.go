@@ -347,26 +347,15 @@ func (r *run) preflight() error {
 	required := []string{"artisan", "composer.json"}
 	if r.o.Mode != mode.ModeProduction {
 		required = append(required, "package.json")
-	}
-	for _, name := range required {
-		if err := regular(r.o.Root, name); err != nil {
-			return err
-		}
-	}
-	if r.o.Mode == mode.ModeProduction {
+	} else {
 		required = append(required, "vendor/autoload.php")
 		if fileRequired(r.o.Manifest, "public/build/manifest.json") {
 			required = append(required, "public/build/manifest.json")
 		}
-		for _, name := range required[len(required)-1:] {
-			if err := regular(r.o.Root, name); err != nil {
-				return fmt.Errorf("production preflight: %w", err)
-			}
-		}
-		if fileRequired(r.o.Manifest, "public/build/manifest.json") {
-			if err := regular(r.o.Root, "public/build/manifest.json"); err != nil {
-				return fmt.Errorf("production preflight: %w", err)
-			}
+	}
+	for _, name := range required {
+		if err := regular(r.o.Root, name); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -475,9 +464,6 @@ func (r *run) ensureDatabaseConfig() error {
 	items := []struct{ key, label string }{
 		{"DB_HOST", "Database host"}, {"DB_DATABASE", "Database name"}, {"DB_USERNAME", "Database user"},
 	}
-	if driver == "pgsql" {
-		items[0].label = "Database host"
-	}
 	for _, item := range items {
 		if err := r.promptValue(item.key, item.label); err != nil {
 			return err
@@ -550,11 +536,6 @@ func (r *run) validateEnv() error {
 			return fmt.Errorf("validasi .env: %s wajib diisi (manifest)", key)
 		}
 	}
-	for _, key := range r.o.Manifest.EnvRequired {
-		if strings.TrimSpace(r.values[key]) == "" {
-			return fmt.Errorf("validasi .env: %s wajib diisi (manifest)", key)
-		}
-	}
 	if r.o.Dry {
 		if r.values == nil {
 			fmt.Fprintln(r.o.Out, "        └─ validasi (checklist): APP_KEY, APP_ENV, DB_CONNECTION wajib; production: APP_ENV=production & APP_DEBUG=false; DB non-sqlite: DB_HOST, DB_DATABASE, DB_USERNAME")
@@ -599,7 +580,7 @@ func (r *run) migrateProd() error {
 }
 
 // seedProd: migrasi dan seeding production sengaja dipisah agar urutan
-// terlihat dan bootstrap superadmin benar-benar dibuat setelah tabelnya ada.
+// terlihat dan data awal proyek benar-benar dibuat setelah tabelnya ada.
 func (r *run) seedProd() error {
 	if err := runStep(r.o.Runner, "Seeding production database", "php", "artisan", "db:seed", "--force"); err != nil {
 		return fmt.Errorf("db seed: %w", err)
@@ -640,6 +621,6 @@ func (r *run) finish() error {
 	fmt.Fprintf(r.o.Out, "✓ Setup %s berhasil diselesaikan.\n", r.o.Mode)
 	fmt.Fprintln(r.o.Out, "Langkah berikutnya:")
 	fmt.Fprintln(r.o.Out, "  • Jalankan aplikasi sesuai environment Anda.")
-	fmt.Fprintln(r.o.Out, "  • Login menggunakan akun Superadmin yang baru dibuat.")
+	fmt.Fprintln(r.o.Out, "  • Gunakan akun aplikasi hasil seeding proyek Anda.")
 	return nil
 }

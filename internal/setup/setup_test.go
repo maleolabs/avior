@@ -187,7 +187,7 @@ func contains(list []string, s string) bool {
 const devEnv = "APP_KEY=base64:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa=\n" +
 	"APP_ENV=development\n" +
 	"DB_CONNECTION=sqlite\n" +
-	"INITIAL_SUPERADMIN_PASSWORD=supersecret-panjang-12\n"
+	"APP_BOOTSTRAP_SECRET=supersecret-panjang-12\n"
 
 func TestSingleEnvReadPerRun(t *testing.T) {
 	root := fixture(t, devEnv)
@@ -224,7 +224,7 @@ func TestSingleEnvReadPerRunProduction(t *testing.T) {
 	root := fixture(t,
 		"APP_KEY=base64:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa=\n"+
 			"APP_ENV=production\nAPP_DEBUG=false\nDB_CONNECTION=sqlite\n"+
-			"INITIAL_SUPERADMIN_PASSWORD=supersecret-panjang-12\n",
+			"APP_BOOTSTRAP_SECRET=supersecret-panjang-12\n",
 		"vendor/autoload.php", "public/build/manifest.json")
 	var out bytes.Buffer
 	counter := &countingEnv{inner: env.ReadFile}
@@ -290,7 +290,7 @@ func TestDryRunPrintsEntirePipelineIncludingValidation(t *testing.T) {
 }
 
 func TestAppKeyGeneratedAndSynced(t *testing.T) {
-	root := fixture(t, "APP_ENV=development\nDB_CONNECTION=sqlite\nINITIAL_SUPERADMIN_PASSWORD=supersecret-panjang-12\n")
+	root := fixture(t, "APP_ENV=development\nDB_CONNECTION=sqlite\nAPP_BOOTSTRAP_SECRET=supersecret-panjang-12\n")
 	var out bytes.Buffer
 	counter := &countingEnv{inner: env.ReadFile}
 	runner := &fakeRunner{}

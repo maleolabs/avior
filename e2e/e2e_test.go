@@ -152,7 +152,7 @@ func TestSetupDevelopmentFullPipeline(t *testing.T) {
 	root := t.TempDir()
 	phpFixture(t, root)
 	files := map[string]string{
-		".env.example":  "APP_NAME=\"E2E App\"\nAPP_ENV=local\nAPP_KEY=\nDB_CONNECTION=sqlite\nINITIAL_SUPERADMIN_PASSWORD=e2e-smoke-password-123\n",
+		".env.example":  "APP_NAME=\"E2E App\"\nAPP_ENV=local\nAPP_KEY=\nDB_CONNECTION=sqlite\nAPP_BOOTSTRAP_SECRET=e2e-smoke-password-123\n",
 		"composer.json": "{\n  \"name\": \"e2e/fixture\",\n  \"description\": \"fixture e2e\",\n  \"require\": {}\n}\n",
 		"package.json":  "{\n  \"name\": \"e2e-smoke\",\n  \"private\": true,\n  \"scripts\": {\n    \"build\": \"node -e \\\"require('fs').mkdirSync('public/build',{recursive:true}); require('fs').writeFileSync('public/build/manifest.json','{}')\\\"\"\n  }\n}\n",
 	}
