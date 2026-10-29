@@ -46,6 +46,27 @@ func TestValidateModeRequirements(t *testing.T) {
 	}
 }
 
+func TestValidateDatabaseDrivers(t *testing.T) {
+	base := map[string]string{"APP_KEY": "key", "APP_ENV": "development", "DB_CONNECTION": "sqlite"}
+	for _, driver := range []string{"sqlite", "mysql", "mariadb", "pgsql", "postgres"} {
+		values := clone(base)
+		values["DB_CONNECTION"] = driver
+		if driver != "sqlite" {
+			values["DB_HOST"] = "localhost"
+			values["DB_DATABASE"] = "app"
+			values["DB_USERNAME"] = "user"
+		}
+		if err := Validate(values, mode.ModeDevelopment); err != nil {
+			t.Errorf("driver %s rejected: %v", driver, err)
+		}
+	}
+	values := clone(base)
+	values["DB_CONNECTION"] = "oracle"
+	if err := Validate(values, mode.ModeDevelopment); err == nil || !strings.Contains(err.Error(), "DB_CONNECTION harus") {
+		t.Fatalf("unsupported driver: %v", err)
+	}
+}
+
 func clone(m map[string]string) map[string]string {
 	out := make(map[string]string, len(m))
 	for k, v := range m {

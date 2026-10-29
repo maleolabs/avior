@@ -378,6 +378,26 @@ func TestMultipleDbPromptsFromOneReader(t *testing.T) {
 	}
 }
 
+func TestDriverPromptDefaultsToSQLiteAndAvoidsNetworkFields(t *testing.T) {
+	root := fixture(t, "APP_KEY=base64:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa=\nAPP_ENV=development\n")
+	var out bytes.Buffer
+	runner := &fakeRunner{}
+	err := Run(Options{Root: root, Mode: mode.ModeDevelopment, In: strings.NewReader("\n"), Out: &out, ReadEnv: env.ReadFile, Runner: runner})
+	if err != nil {
+		t.Fatalf("setup: %v\n%s", err, out.String())
+	}
+	values, err := env.ReadFile(filepath.Join(root, ".env"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if values["DB_CONNECTION"] != "sqlite" {
+		t.Fatalf("driver=%q", values["DB_CONNECTION"])
+	}
+	if strings.Contains(out.String(), "Database host") || strings.Contains(out.String(), "Database user") {
+		t.Fatalf("SQLite prompted for remote DB fields: %s", out.String())
+	}
+}
+
 func TestRunRejectsInvalidMode(t *testing.T) {
 	root := fixture(t, devEnv)
 	var out bytes.Buffer
