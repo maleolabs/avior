@@ -21,7 +21,7 @@ func TestEnsureHostUsesInjectedWriterAndCleanup(t *testing.T) {
 	privilegePreflight = func(string) error { return nil }
 	privilegedWriter = func(p string, data []byte) error { return os.WriteFile(p, data, 0644) }
 
-	cleanup, err := EnsureHost(strings.ToUpper(brand.Name[:1])+brand.Name[1:]+".test.", true)
+	cleanup, err := EnsureHost(strings.ToUpper(brand.Name)+".test.", true)
 	if err != nil {
 		t.Fatal(err)
 	}

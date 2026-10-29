@@ -23,7 +23,7 @@ func stripSkipped(line string) string {
 // isBrandLiteral melaporkan apakah baris (setelah strip) memuat literal brand.
 func isBrandLiteral(line string) bool {
 	low := strings.ToLower(stripSkipped(line))
-	return strings.Contains(low, "simpskba") || strings.Contains(low, "avior")
+	return strings.Contains(low, "simpskba") || strings.Contains(low, "sim-pskba") || strings.Contains(low, "avior")
 }
 
 // TestNoBrandLiteralOutsideBrand memindai semua file Go di luar internal/brand
