@@ -5,6 +5,8 @@
 // ter-wire (setup.Run, runtime.Run, proxy, hostname, state, processgroup)
 // dengan proses NYATA: php, composer, npm, node, dan binary Caddy asli.
 // Jalankan: go test -tags e2e ./e2e -v
+// Siklus hosts privileged opt-in via E2E_ALLOW_HOSTS=1; default hanya path
+// refusal (sudo tidak terotorisasi) agar /etc/hosts tidak pernah tersentuh.
 // Tanpa jaringan/Caddy, test Caddy skip otomatis — sisanya tetap jalan.
 package e2e
 
@@ -64,7 +66,10 @@ func TestMain(m *testing.M) {
 func downloadCaddy(dir string) (string, error) {
 	v := proxy.CaddyVersion
 	url := fmt.Sprintf("https://github.com/caddyserver/caddy/releases/download/v%s/caddy_%s_%s_%s.tar.gz", v, v, runtime.GOOS, runtime.GOARCH)
-	resp, err := http.Get(url) //nolint:gosec -- URL statis dari pin versi repo
+	// Timeout eksplisit: http.Get memakai DefaultClient tanpa deadline —
+	// unduhan menggantung bisa menahan seluruh run e2e.
+	client := &http.Client{Timeout: 2 * time.Minute}
+	resp, err := client.Get(url) //nolint:gosec -- URL statis dari pin versi repo
 	if err != nil {
 		return "", err
 	}
@@ -78,7 +83,12 @@ func downloadCaddy(dir string) (string, error) {
 	}
 	defer gz.Close()
 	tr := tar.NewReader(gz)
-	bin := filepath.Join(dir, "caddy")
+	// Nama entry binary mengikuti GOOS (rilis Windows memuat caddy.exe).
+	binName := "caddy"
+	if runtime.GOOS == "windows" {
+		binName = "caddy.exe"
+	}
+	bin := filepath.Join(dir, binName)
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
@@ -87,7 +97,7 @@ func downloadCaddy(dir string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		if filepath.Base(hdr.Name) != "caddy" || hdr.Typeflag != tar.TypeReg {
+		if filepath.Base(hdr.Name) != binName || hdr.Typeflag != tar.TypeReg {
 			continue
 		}
 		f, err := os.OpenFile(bin, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o755)
@@ -372,6 +382,11 @@ func TestCaddyVirtualDomain(t *testing.T) {
 		if err != nil {
 			t.Skipf("baca hosts: %v", err)
 		}
+		// Opt-in: sudo yang masih terotorisasi (cache) bisa membuat EnsureHost
+		// berhasil dan menulis /etc/hosts sungguhan. Default hanya path refusal.
+		if exec.Command("sudo", "-n", "true").Run() == nil && os.Getenv("E2E_ALLOW_HOSTS") != "1" {
+			t.Skip("sudo terotorisasi; set E2E_ALLOW_HOSTS=1 untuk siklus hosts privileged")
+		}
 		cleanup, err := hostname.EnsureHost(domain, true)
 		if err != nil {
 			// Path yang diharapkan di host non-root: preflight sudo menolak.
@@ -424,6 +439,9 @@ func TestStateAndManagedStop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Jaring pengaman: Terminate idempoten — cleanup normal lewat
+	// StopManagedProcess di bawah; ini menutup jalur failure sebelum stop.
+	t.Cleanup(func() { sup.Terminate(time.Second, time.Second) })
 	id := sup.Identity()
 	if id.PID == 0 || id.Command == "" {
 		t.Fatalf("identitas proses tidak lengkap: %+v", id)
