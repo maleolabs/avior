@@ -100,6 +100,12 @@ func CaddyConfig(domain, upstream string, port int, https bool, storage string) 
 	address := domain
 	if https {
 		address = "https://" + domain
+	} else {
+		// Domain .localhost/.test memenuhi kualifikasi automatic HTTPS Caddy;
+		// tanpa scheme eksplisit Caddy menyalakan redirect listener HTTP->HTTPS
+		// pada :80 yang butuh privilege root (ditemukan e2e sto:p2-e2e-smoke).
+		// Prefix http:// menonaktifkan automation untuk site ini saja.
+		address = "http://" + domain
 	}
 	return fmt.Sprintf("%s%s:%d {\n\tbind 127.0.0.1\n%s\treverse_proxy %s {\n\t\theader_up X-Forwarded-Proto %s\n\t}\n}\n", global, address, port, tls, upstream, scheme)
 }

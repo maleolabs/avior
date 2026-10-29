@@ -132,6 +132,23 @@ func TestCaddyConfigQuotesStoragePath(t *testing.T) {
 	}
 }
 
+// Config HTTP (virtual domain tanpa HTTPS) wajib memakai site address
+// http:// eksplisit: tanpa itu Caddy menyalakan automatic HTTPS untuk domain
+// .localhost/.test dan mencoba bind :80 untuk redirect — gagal non-root
+// (ditemukan e2e sto:p2-e2e-smoke).
+func TestCaddyConfigHTTPDisablesAutoHTTPS(t *testing.T) {
+	config := CaddyConfig(brand.Name+".test", "127.0.0.1:8000", 8080, false, "/tmp/certs")
+	if !strings.Contains(config, "http://"+brand.Name+".test:8080") {
+		t.Fatalf("HTTP config must use an explicit http:// site address: %s", config)
+	}
+	if strings.Contains(config, "tls ") || strings.Contains(config, "https://") {
+		t.Fatalf("HTTP config must not enable TLS: %s", config)
+	}
+	if !strings.Contains(config, "bind 127.0.0.1") || !strings.Contains(config, "reverse_proxy 127.0.0.1:8000") {
+		t.Fatalf("unsafe or incomplete config: %s", config)
+	}
+}
+
 func TestLocalDomainValidation(t *testing.T) {
 	for _, domain := range []string{"localhost", "app.localhost", brand.Name + ".test"} {
 		if !ValidLocalDomain(domain) {
