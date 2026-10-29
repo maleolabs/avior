@@ -1,0 +1,1 @@
+{"objective":"M3 — distribusi v2: checksum manifest sesuai resolusi spk:release-checksum-contract; install channels; pembersihan worktree sisa eksekusi.","workItems":"m3-checksum-manifest-v2; m3-install-channels; m3-worktree-cleanup","changeLog":"2026-10-29 dibuat dari plan:avior-migration-v2 (approved)."}

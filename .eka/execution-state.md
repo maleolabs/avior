@@ -1,7 +1,7 @@
 # Execution State
 scope: ctr:m3-distribution-v2
 updated: 2026-10-29
-status: active
+status: completed
 mode: delegated
 plan: avior/plan:avior-migration-v2 (approved, immutable)
 items:
@@ -13,15 +13,15 @@ items:
 - avior/sto:m2-cmd-trust: done
 - avior/sto:m2-e2e-full-cycle: done
 - avior/sto:m3-worktree-cleanup: done
-- avior/sto:m3-checksum-manifest-v2: in-progress
-- avior/sto:m3-install-channels: in-progress
-- avior/td:m3-ci-discipline: in-progress
+- avior/sto:m3-checksum-manifest-v2: done
+- avior/sto:m3-install-channels: done
+- avior/td:m3-ci-discipline: done
 current:
-  container: ctr:m3-distribution-v2 (active)
-  phase: implementation
+  container: ctr:m3-distribution-v2 (completed)
+  phase: completed
   worktree: direct on main (single-writer convention)
-  pending: backend agent finishing checksum/install-channels/ci-discipline; then close container.
-next: final QA gate + laporan ke user
+  pending: (none — all containers completed; plan avior-migration-v2 fulfilled)
+next: backlog (ponytail TUI, caddy auto-acquire wiring, launcher Windows e2e runner) — belum dijadwalkan
 decisions:
 - plan avior-transformation di-superseded; sisa kerja di-replan sebagai plan:avior-migration-v2 (m1 identitas, m2 CLI parity, m3 distribusi-v2).
 - container phase-5-distribution ditutup: p5-checksum-manifest + p5-install-channels canceled (AC konflik, tanpa konteks), p5-release-ci done.
