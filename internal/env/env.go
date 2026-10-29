@@ -8,6 +8,8 @@ package env
 import (
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -208,6 +210,50 @@ func Update(src io.Reader, key, secret string) ([]byte, error) {
 		out = append(out, Entry{Key: key, Value: secret})
 	}
 	return Marshal(out), nil
+}
+
+// ReadFile membaca file .env pada path menjadi map KEY=VALUE. Semantik dotenv
+// last-win: duplikat key, nilai terakhir yang efektif. Ini satu-satunya cara
+// membaca .env dari luar package — lapis lain (setup, runtime, discovery)
+// WAJIB lewat sini; parser Parse tidak boleh diduplikasi (arc:avior-architecture:
+// tidak ada parser .env kedua, menghabiskan duplikasi 3x simpskba:
+// env.Read, runtime.dotenvValues, discovery.env).
+func ReadFile(path string) (map[string]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	entries, err := Parse(f)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]string, len(entries))
+	for _, e := range entries {
+		if e.Key != "" {
+			out[e.Key] = e.Value // last-win
+		}
+	}
+	return out, nil
+}
+
+// ReadEffective mengembalikan nilai efektif key untuk project di root:
+// environment proses menang atas .env (precedence runtime effectiveEnv dan
+// discovery.env di simpskba — env eksplisit dari CLI tidak boleh ditimpa
+// file), fallback nilai .env di root. File tak ada/tak terbaca berarti
+// ("", false): lookup best-effort, sesuai perilaku ketiga call site legacy.
+// ponytail: parse error ikut fail-closed ke tidak-ada; saat discovery
+// di-port, naikkan jadi diagnostic agar .env rusak kelihatan.
+func ReadEffective(root, key string) (string, bool) {
+	if v, ok := os.LookupEnv(key); ok {
+		return v, true
+	}
+	values, err := ReadFile(filepath.Join(root, ".env"))
+	if err != nil {
+		return "", false
+	}
+	v, ok := values[key]
+	return v, ok
 }
 
 // ValidateKey memastikan nama variabel layak untuk .env (huruf/angka/underscore,
