@@ -162,7 +162,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&flagRoot, "root", "", "root proyek Laravel (default: direktori saat ini)")
 	rootCmd.PersistentFlags().BoolVar(&flagDryRun, "dry-run", false, "tampilkan aksi tanpa menjalankan")
 	rootCmd.PersistentFlags().BoolVarP(&flagYes, "yes", "y", false, "non-interactive, setujui semua konfirmasi")
-	rootCmd.AddCommand(doctorCmd, verifyCmd, monitorCmd, attachCmd, stopCmd, setupCmd, serveCmd)
+	rootCmd.AddCommand(doctorCmd, verifyCmd, monitorCmd, attachCmd, stopCmd, setupCmd, serveCmd, archiveCmd)
 }
 
 // isTTY mendeteksi file karakter (terminal interaktif). Stdlib saja.
