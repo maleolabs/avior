@@ -11,6 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/maleolabs/avior/internal/mode"
 )
 
 // Entry merepresentasikan satu baris .env. Key kosong berarti baris non-assignment
@@ -267,6 +269,32 @@ func ValidateKey(key string) error {
 			(i > 0 && r >= '0' && r <= '9')
 		if !ok {
 			return fmt.Errorf("env: nama variabel tidak valid: %q", key)
+		}
+	}
+	return nil
+}
+
+// Validate memeriksa konfigurasi minimum yang dibutuhkan mode terpilih.
+// Diport dari simpskba (setup-side env validation); mode memakai tipe
+// mode.Mode tunggal, bukan string [arc:avior-architecture].
+func Validate(values map[string]string, m mode.Mode) error {
+	required := []string{"APP_KEY", "APP_ENV", "DB_CONNECTION"}
+	for _, key := range required {
+		if strings.TrimSpace(values[key]) == "" {
+			return fmt.Errorf("%s wajib diisi", key)
+		}
+	}
+	if m == mode.ModeProduction && values["APP_ENV"] != string(mode.ModeProduction) {
+		return fmt.Errorf("APP_ENV harus production")
+	}
+	if m == mode.ModeProduction && strings.EqualFold(values["APP_DEBUG"], "true") {
+		return fmt.Errorf("APP_DEBUG harus false di production")
+	}
+	if values["DB_CONNECTION"] != "sqlite" {
+		for _, key := range []string{"DB_HOST", "DB_DATABASE", "DB_USERNAME"} {
+			if strings.TrimSpace(values[key]) == "" {
+				return fmt.Errorf("%s wajib diisi untuk database %s", key, values["DB_CONNECTION"])
+			}
 		}
 	}
 	return nil
