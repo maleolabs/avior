@@ -162,7 +162,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&flagRoot, "root", "", "root proyek Laravel (default: direktori saat ini)")
 	rootCmd.PersistentFlags().BoolVar(&flagDryRun, "dry-run", false, "tampilkan aksi tanpa menjalankan")
 	rootCmd.PersistentFlags().BoolVarP(&flagYes, "yes", "y", false, "non-interactive, setujui semua konfirmasi")
-	rootCmd.AddCommand(doctorCmd, verifyCmd, monitorCmd, attachCmd, stopCmd)
+	rootCmd.AddCommand(doctorCmd, verifyCmd, monitorCmd, attachCmd, stopCmd, setupCmd)
 }
 
 // isTTY mendeteksi file karakter (terminal interaktif). Stdlib saja.
@@ -171,16 +171,22 @@ func isTTY(f *os.File) bool {
 	return err == nil && info.Mode()&os.ModeCharDevice != 0
 }
 
-// Run mengeksekusi satu invocation CLI dengan writer yang di-inject.
-// Dipakai main (writer = os.Stdout/Stderr) dan test (buffer). Flag package
-// level di-reset agar test bisa memanggil berulang pada satu proses.
-func Run(args []string, stdout, stderr io.Writer) error {
+// RunIn seperti Run dengan stdin di-inject (testability: non-TTY paths).
+func RunIn(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	flagRoot, flagDryRun, flagYes = "", false, false
 	doctorJSON, verifyJSON = jsonOnceFlag{}, jsonOnceFlag{}
+	rootCmd.SetIn(stdin)
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(stderr)
 	rootCmd.SetArgs(args)
 	return rootCmd.Execute()
+}
+
+// Run mengeksekusi satu invocation CLI dengan writer yang di-inject.
+// Dipakai main (writer = os.Stdout/Stderr) dan test (buffer). Flag package
+// level di-reset agar test bisa memanggil berulang pada satu proses.
+func Run(args []string, stdout, stderr io.Writer) error {
+	return RunIn(args, os.Stdin, stdout, stderr)
 }
 
 // Execute adalah entry produksi: render error card untuk kegagalan

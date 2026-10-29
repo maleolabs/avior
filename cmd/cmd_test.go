@@ -29,6 +29,15 @@ func runCLIStrip(t *testing.T, args ...string) (string, error) {
 	return ui.Strip(out), err
 }
 
+// runCLIPipe menjalankan CLI dengan stdin pipe (bukan TTY) — untuk path
+// fail-closed yang menuntut terminal interaktif.
+func runCLIPipe(t *testing.T, args ...string) (string, error) {
+	t.Helper()
+	var out bytes.Buffer
+	err := RunIn(args, bytes.NewReader(nil), &out, &out)
+	return ui.Strip(out.String()), err
+}
+
 func TestDiagnosticJSONFailureAndSuccess(t *testing.T) {
 	root := t.TempDir()
 	out, err := runCLIStrip(t, "--root", root, "verify", "production", "--json")
