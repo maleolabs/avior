@@ -32,6 +32,14 @@ func (r Runner) Run(name string, args ...string) error {
 // RunLabel menjalankan command sambil menampilkan deskripsi aman untuk
 // pengguna. Command sengaja tidak dicetak mentah: bisa berisi secret dan
 // berisik bagi pengguna non-teknis.
+//
+// Kontrak render (sto:p1-writer-injection): pada path gagal RunLabel me-render
+// ErrorCard sendiri ke Runner.ErrOut (inline) dan mengembalikan
+// ui.ReportedError yang membawa pesan yang sama. Render top-level untuk error
+// yang naik ke pengguna adalah milik cmd/ lewat ui.RenderError. Karena error
+// ini membawa Render sendiri, dua jalur me-render akan menghasilkan kartu
+// dobel — cmd/ wajib memilih: render inline saja (jangan RenderError ulang)
+// ATAU hapus render inline di sini. Keputusan final saat cmd/ mendarat.
 func (r Runner) RunLabel(label, name string, args ...string) error {
 	label = sanitizeText(label)
 	fmt.Fprintf(r.Out, "  ▸ %s\n", label)

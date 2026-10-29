@@ -4,11 +4,16 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"runtime"
 	"strings"
 	"testing"
 
+	"github.com/maleolabs/avior/internal/setup"
 	"github.com/maleolabs/avior/internal/ui"
 )
+
+// Compile-time: executor.Runner memenuhi kontrak Runner pipeline setup.
+var _ setup.Runner = Runner{}
 
 // outRunner membuat Runner dengan buffer Out/ErrOut (tanpa stdout nyata).
 func outRunner() (Runner, *bytes.Buffer, *bytes.Buffer) {
@@ -17,6 +22,9 @@ func outRunner() (Runner, *bytes.Buffer, *bytes.Buffer) {
 }
 
 func TestRunnerRunLabelSuccessAndDryRun(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("true bukan executable Windows; cakupan dijalankan di runner POSIX")
+	}
 	r, out, _ := outRunner()
 	if err := r.RunLabel("Membaca konfigurasi", "true"); err != nil {
 		t.Fatalf("RunLabel: %v", err)
@@ -37,18 +45,25 @@ func TestRunnerRunLabelSuccessAndDryRun(t *testing.T) {
 
 // TestRunnerNoShellInterpolation: argumen dengan spasi/metacharacter tetap
 // dilewatkan sebagai SATU argv — tidak pernah dieksekusi lewat shell.
+// Diskriminator exit-code: "1; exit 9" lewat shell exit 9 (gagal), lewat
+// argv-list printf exit 0 (sukses) — asersi err==nil membuktikan tanpa shell.
 func TestRunnerNoShellInterpolation(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("printf external bukan executable Windows; cakupan dijalankan di runner POSIX")
+	}
 	r, _, _ := outRunner()
-	payload := "a; rm -rf /b | cat && `x` $HOME"
-	err := r.RunLabel("cek argv", "printf", "%s", payload)
+	err := r.RunLabel("cek argv", "printf", "%s", "1; exit 9")
 	if err != nil {
-		t.Fatalf("RunLabel: %v", err)
+		t.Fatalf("argv-list harus sukses (shell akan exit 9): %v", err)
 	}
 }
 
 // TestRunnerFailureSanitizesSecrets: command gagal yang mencetak secret ke
 // stdout harus di-REDACTED baik di kartu error (ErrOut) maupun di error.
 func TestRunnerFailureSanitizesSecrets(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("sh bukan executable Windows; cakupan dijalankan di runner POSIX")
+	}
 	r, out, errOut := outRunner()
 	err := r.RunLabel("migrasi", "sh", "-c", "echo 'migrate --password=s3cret-xyz gagal' >&2; exit 3")
 	if err == nil {
@@ -84,6 +99,9 @@ func TestSanitizeText(t *testing.T) {
 		{"--password=hunter2", "--password=[REDACTED]"},
 		{"-token abc", "-token [REDACTED]"},
 		{"--API_KEY=zzz", "--API_KEY=[REDACTED]"},
+		{"--key=abc", "--key=[REDACTED]"},
+		{"--api-key=abc", "--api-key=[REDACTED]"},
+		{"--secret abc", "--secret [REDACTED]"},
 		{"\x1b[31mmerah\x1b[0m", "merah"},
 		{"--file=x.txt", "--file=x.txt"}, // non-secret utuh
 	}
@@ -100,7 +118,7 @@ func TestTruncateOutputKeepsHeadAndTail(t *testing.T) {
 	if len(got) > 4096 || !strings.Contains(got, "[output truncated]") || !strings.HasPrefix(got, "aaa") || !strings.HasSuffix(got, "bbb") {
 		t.Fatalf("truncate harus menyimpan head+tail: len=%d", len(got))
 	}
-	if got := truncateOutput("--password=x secret", 0); strings.Contains(got, "hunter2") || !strings.Contains(got, "[REDACTED]") {
+	if got := truncateOutput("--password=hunter2 sisa", 0); strings.Contains(got, "hunter2") || !strings.Contains(got, "[REDACTED]") {
 		t.Fatalf("truncate harus tetap menyamarkan: %q", got)
 	}
 }
