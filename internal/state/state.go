@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/maleolabs/avior/internal/brand"
@@ -38,16 +39,25 @@ type RuntimeState struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
+var stateMu sync.Mutex
+
 // Paths mengembalikan lokasi kedua file state untuk projectRoot:
 // runtime-state-<sha8>.json dan runtime-processes-<sha8>.json di dalam
 // brand.StateDir(). Token dihitung dari path LITERAL setelah
-// filepath.Abs (relatif dinormalisasi ke absolut), TIDAK symlink-resolved:
-// path symlink ke proyek yang sama = runtime terpisah. Arah fail-safe —
-// stop/attach tidak pernah salah menganggap runtime proyek lain miliknya.
+// filepath.Abs and symlink-resolved when possible, so aliases share runtime.
 func Paths(projectRoot string) (statePath, processesPath string, err error) {
 	abs, err := filepath.Abs(projectRoot)
 	if err != nil {
 		return "", "", fmt.Errorf("state: abs path: %w", err)
+	}
+	abs = filepath.Clean(abs)
+	if resolved, resolveErr := filepath.EvalSymlinks(abs); resolveErr == nil {
+		abs = resolved
+	} else if !os.IsNotExist(resolveErr) {
+		// Resolve partial existing path prefixes; retain absolute input if unavailable.
+		if resolved, partialErr := resolveExistingPrefix(abs); partialErr == nil {
+			abs = resolved
+		}
 	}
 	sum := sha256.Sum256([]byte(abs))
 	token := hex.EncodeToString(sum[:8]) // ponytail: token 64-bit (16 hex) cukup unik antar checkout; naik ke 32 hex jika tabrakan nyata
@@ -56,10 +66,36 @@ func Paths(projectRoot string) (statePath, processesPath string, err error) {
 		filepath.Join(dir, "runtime-processes-"+token+".json"), nil
 }
 
+func resolveExistingPrefix(path string) (string, error) {
+	missing := []string{}
+	for {
+		resolved, err := filepath.EvalSymlinks(path)
+		if err == nil {
+			for i := len(missing) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, missing[i])
+			}
+			return filepath.Clean(resolved), nil
+		}
+		parent := filepath.Dir(path)
+		if parent == path {
+			return "", err
+		}
+		missing = append(missing, filepath.Base(path))
+		path = parent
+	}
+}
+
 // SaveState menulis st ke statePath secara atomik (temp file + rename di
 // dir yang sama). Perm 0600: file berisi PID dan path proses milik user;
 // least privilege, tidak ada alasan dibaca user lain.
 func SaveState(statePath string, st RuntimeState) error {
+	stateMu.Lock()
+	defer stateMu.Unlock()
+	unlock, err := lockState(statePath)
+	if err != nil {
+		return fmt.Errorf("state: lock: %w", err)
+	}
+	defer unlock()
 	st.UpdatedAt = time.Now().UTC()
 	data, err := json.MarshalIndent(st, "", "  ")
 	if err != nil {
@@ -68,9 +104,13 @@ func SaveState(statePath string, st RuntimeState) error {
 	return saveAtomic(statePath, data, 0o600)
 }
 
-// LoadState membaca state dari statePath. exists=false (dengan error nil)
-// saat file belum ada — kondisi normal "belum ada runtime".
+// LoadState reads state from a clean absolute statePath. It is an unlocked
+// snapshot: concurrent writes may replace the file before or after the read.
+// exists=false (with nil error) means the file does not exist.
 func LoadState(statePath string) (st RuntimeState, exists bool, err error) {
+	if !filepath.IsAbs(statePath) || filepath.Clean(statePath) != statePath || filepath.Dir(statePath) == "." {
+		return RuntimeState{}, false, fmt.Errorf("state: path must be clean absolute path: %q", statePath)
+	}
 	data, err := os.ReadFile(statePath)
 	if os.IsNotExist(err) {
 		return RuntimeState{}, false, nil
@@ -82,6 +122,25 @@ func LoadState(statePath string) (st RuntimeState, exists bool, err error) {
 		return RuntimeState{}, false, fmt.Errorf("state: decode %s: %w", statePath, err)
 	}
 	return st, true, nil
+}
+
+// RemoveStateIfOwner removes state only while it still names this runtime.
+func RemoveStateIfOwner(statePath string, owner Process) error {
+	stateMu.Lock()
+	defer stateMu.Unlock()
+	unlock, err := lockState(statePath)
+	if err != nil {
+		return fmt.Errorf("state: lock: %w", err)
+	}
+	defer unlock()
+	st, exists, err := LoadState(statePath)
+	if err != nil || !exists {
+		return err
+	}
+	if st.MainPID != owner {
+		return nil
+	}
+	return os.Remove(statePath)
 }
 
 // SaveProcesses menulis registry proses anak (php serve, worker, dll) ke

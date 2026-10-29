@@ -1,6 +1,7 @@
 package state
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"sync"
@@ -62,6 +63,33 @@ func TestPathsDeterministicAndAbsolute(t *testing.T) {
 	}
 }
 
+func TestPathsCanonicalizeSymlinkAlias(t *testing.T) {
+	if os.Getenv("GOOS") == "windows" {
+		t.Skip("symlink privileges vary on Windows")
+	}
+	isolateHome(t)
+	root := t.TempDir()
+	real := filepath.Join(root, "real")
+	if err := os.Mkdir(real, 0700); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(root, "alias")
+	if err := os.Symlink(real, alias); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	a, b, err := Paths(real)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, d, err := Paths(alias)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a != c || b != d {
+		t.Fatalf("symlink alias paths differ: %s %s / %s %s", a, b, c, d)
+	}
+}
+
 func TestStateRoundTrip(t *testing.T) {
 	isolateHome(t)
 	statePath, _, err := Paths("/home/dev/app")
@@ -92,6 +120,81 @@ func TestStateRoundTrip(t *testing.T) {
 	}
 	if got.UpdatedAt.IsZero() {
 		t.Fatal("UpdatedAt tidak diisi SaveState")
+	}
+}
+
+func TestRemoveStateIfOwnerSerializesWithSave(t *testing.T) {
+	isolateHome(t)
+	path, _, err := Paths(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := Process{PID: 1, Command: "old"}
+	next := Process{PID: 2, Command: "next"}
+	if err := SaveState(path, RuntimeState{MainPID: old}); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- RemoveStateIfOwner(path, old) }()
+	if err := SaveState(path, RuntimeState{MainPID: next}); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	got, exists, err := LoadState(path)
+	if err != nil || !exists || got.MainPID != next {
+		t.Fatalf("new owner state lost: state=%+v exists=%v err=%v", got, exists, err)
+	}
+}
+
+func TestRemoveStateIfOwnerCannotRemoveNewOwnerAcrossProcesses(t *testing.T) {
+	isolateHome(t)
+	path, _, err := Paths(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := Process{PID: 1, Command: "old"}
+	next := Process{PID: 2, Command: "next"}
+	if err := SaveState(path, RuntimeState{MainPID: old}); err != nil {
+		t.Fatal(err)
+	}
+	unlock, err := lockState(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- RemoveStateIfOwner(path, old) }()
+	// The held OS lock guarantees remover cannot inspect or delete old state yet.
+	data, err := json.Marshal(RuntimeState{MainPID: next})
+	if err != nil {
+		unlock()
+		t.Fatal(err)
+	}
+	if err := saveAtomic(path, data, 0o600); err != nil {
+		unlock()
+		t.Fatal(err)
+	}
+	// Confirm remover remains blocked while this newer owner is persisted.
+	select {
+	case err := <-done:
+		unlock()
+		t.Fatalf("remover completed while lock owned: %v", err)
+	default:
+	}
+	unlock()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	got, exists, err := LoadState(path)
+	if err != nil || !exists || got.MainPID != next {
+		t.Fatalf("new owner state lost: state=%+v exists=%v err=%v", got, exists, err)
+	}
+}
+
+func TestLoadStateRejectsRelativePath(t *testing.T) {
+	if _, _, err := LoadState("runtime-state.json"); err == nil {
+		t.Fatal("relative state path accepted")
 	}
 }
 
@@ -142,8 +245,8 @@ func TestSaveAtomicNoTempLeft(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadDir error: %v", err)
 	}
-	if len(entries) != 1 {
-		t.Fatalf("harus tinggal 1 file (tanpa temp), ada %d", len(entries))
+	if len(entries) != 2 {
+		t.Fatalf("state plus lock file expected (no temp), got %d files", len(entries))
 	}
 	info, err := entries[0].Info()
 	if err != nil {
