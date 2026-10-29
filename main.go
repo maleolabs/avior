@@ -20,7 +20,7 @@ func main() {
 
 func run(args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return fmt.Errorf("usage: %s monitor | attach [project] | stop [project]", brand.Name)
+		return fmt.Errorf("usage: %s monitor [project] | attach [project] | stop [project]", brand.Name)
 	}
 	project := func() (string, string, error) {
 		root := ""
@@ -42,21 +42,19 @@ func run(args []string, out io.Writer) error {
 	}
 	switch args[0] {
 	case "monitor":
-		if len(args) != 1 {
-			return fmt.Errorf("monitor takes no project selector")
+		if len(args) > 2 {
+			return fmt.Errorf("monitor takes at most one project selector")
 		}
-		matches, err := filepath.Glob(filepath.Join(brand.StateDir(), "runtime-state-*.json"))
+		sp, _, err := project()
 		if err != nil {
 			return err
 		}
-		for _, path := range matches {
-			st, exists, err := state.LoadState(path)
-			if err != nil {
-				return err
-			}
-			if exists && st.MainPID.PID != 0 {
-				fmt.Fprintf(out, "%s\t%d\t%d\n", st.ProjectRoot, st.MainPID.PID, st.Port)
-			}
+		st, exists, err := state.LoadState(sp)
+		if err != nil {
+			return err
+		}
+		if exists && st.MainPID.PID != 0 {
+			fmt.Fprintf(out, "%s\t%d\t%d\n", st.ProjectRoot, st.MainPID.PID, st.Port)
 		}
 		return nil
 	case "attach":
@@ -99,6 +97,6 @@ func run(args []string, out io.Writer) error {
 		}
 		return nil
 	default:
-		return fmt.Errorf("unknown command %q; usage: %s monitor | attach [project] | stop [project]", args[0], brand.Name)
+		return fmt.Errorf("unknown command %q; usage: %s monitor [project] | attach [project] | stop [project]", args[0], brand.Name)
 	}
 }

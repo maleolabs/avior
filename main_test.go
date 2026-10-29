@@ -33,12 +33,28 @@ func TestMonitorAndProjectScopedCommands(t *testing.T) {
 		}
 	}
 	var out bytes.Buffer
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(a); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWD) })
 	if err := run([]string{"monitor"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), a) || !strings.Contains(out.String(), b) {
-		t.Fatalf("monitor omitted projects: %q", out.String())
+	if got := out.String(); !strings.Contains(got, a) || strings.Contains(got, b) {
+		t.Fatalf("default monitor not scoped to A: %q", got)
 	}
+	out.Reset()
+	if err := run([]string{"monitor", b}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if got := out.String(); !strings.Contains(got, b) || strings.Contains(got, a) {
+		t.Fatalf("explicit monitor not scoped to B: %q", got)
+	}
+	out.Reset()
 	if err := run([]string{"attach", a}, &out); err != nil {
 		t.Fatal(err)
 	}
