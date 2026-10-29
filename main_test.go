@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -14,10 +15,11 @@ import (
 func TestMonitorAndProjectScopedCommands(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	a, b := filepath.Join(t.TempDir(), "project-a"), filepath.Join(t.TempDir(), "project-b")
-	for _, root := range []string{a, b} {
-		if err := os.MkdirAll(root, 0700); err != nil {
-			t.Fatal(err)
-		}
+	if err := os.MkdirAll(a, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(b, 0700); err != nil {
+		t.Fatal(err)
 	}
 	pa, _, err := state.Paths(a)
 	if err != nil {
@@ -27,34 +29,22 @@ func TestMonitorAndProjectScopedCommands(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, item := range []struct{ path, root string }{{pa, a}, {pb, b}} {
-		if err := state.SaveState(item.path, state.RuntimeState{ProjectRoot: item.root, MainPID: state.Process{PID: os.Getpid(), Command: os.Args[0], StartedAt: time.Now()}}); err != nil {
-			t.Fatal(err)
-		}
+	if err := state.SaveState(pa, state.RuntimeState{ProjectRoot: a, MainPID: state.Process{PID: os.Getpid(), Command: os.Args[0], StartedAt: time.Now()}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SaveState(pb, state.RuntimeState{ProjectRoot: b, MainPID: state.Process{PID: os.Getpid(), Command: os.Args[0], StartedAt: time.Now()}}); err != nil {
+		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	oldWD, err := os.Getwd()
-	if err != nil {
+	if err := run([]string{"monitor", a}, &out); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chdir(a); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chdir(oldWD) })
-	if err := run([]string{"monitor"}, &out); err != nil {
-		t.Fatal(err)
-	}
-	if got := out.String(); !strings.Contains(got, a) || strings.Contains(got, b) {
-		t.Fatalf("default monitor not scoped to A: %q", got)
-	}
+	assertMonitorRow(t, out.String(), a)
 	out.Reset()
 	if err := run([]string{"monitor", b}, &out); err != nil {
 		t.Fatal(err)
 	}
-	if got := out.String(); !strings.Contains(got, b) || strings.Contains(got, a) {
-		t.Fatalf("explicit monitor not scoped to B: %q", got)
-	}
-	out.Reset()
+	assertMonitorRow(t, out.String(), b)
 	if err := run([]string{"attach", a}, &out); err != nil {
 		t.Fatal(err)
 	}
@@ -69,5 +59,17 @@ func TestMonitorAndProjectScopedCommands(t *testing.T) {
 	}
 	if _, exists, err := state.LoadState(pa); err != nil || !exists {
 		t.Fatalf("unsafe stop removed state A: exists=%v err=%v", exists, err)
+	}
+}
+
+func assertMonitorRow(t *testing.T, output, root string) {
+	t.Helper()
+	rows := strings.Split(strings.TrimSpace(output), "\n")
+	if len(rows) != 1 {
+		t.Fatalf("expected one row, got %q", output)
+	}
+	fields := strings.Split(rows[0], "\t")
+	if len(fields) != 3 || fields[0] != root || fields[1] != strconv.Itoa(os.Getpid()) || fields[2] != "0" {
+		t.Fatalf("unexpected monitor row: %q", output)
 	}
 }

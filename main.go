@@ -37,6 +37,11 @@ func run(args []string, out io.Writer) error {
 		if err != nil {
 			return "", "", err
 		}
+		resolved, err := filepath.EvalSymlinks(abs)
+		if err != nil {
+			return "", "", fmt.Errorf("project path must exist: %w", err)
+		}
+		abs = resolved
 		statePath, processPath, err := state.Paths(abs)
 		return statePath, processPath, err
 	}
@@ -83,9 +88,6 @@ func run(args []string, out io.Writer) error {
 			return err
 		}
 		st, exists, err := state.LoadState(sp)
-		if err != nil {
-			return err
-		}
 		if err != nil {
 			return err
 		}
