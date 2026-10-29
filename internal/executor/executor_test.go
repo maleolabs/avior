@@ -21,6 +21,25 @@ func outRunner() (Runner, *bytes.Buffer, *bytes.Buffer) {
 	return Runner{Out: out, ErrOut: errOut}, out, errOut
 }
 
+func TestWindowsCommandResolution(t *testing.T) {
+	if got, _ := windowsCommand("tool", nil); got != "tool" {
+		t.Fatalf("non-Windows command = %q", got)
+	}
+	if got, _ := windowsCommand("tool.exe", nil); got != "tool.exe" {
+		t.Fatalf("explicit executable = %q", got)
+	}
+}
+
+func TestWindowsCommandWrapsCmdScripts(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows command line only")
+	}
+	got, args := windowsCommand(`C:\Program Files\Composer\composer.cmd`, []string{"install", "--no-interaction"})
+	if got != "cmd.exe" || len(args) != 7 || args[0] != "/d" || args[3] != `"C:\Program Files\Composer\composer.cmd"` {
+		t.Fatalf("command=(%q,%q)", got, args)
+	}
+}
+
 func TestRunnerRunLabelSuccessAndDryRun(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("true bukan executable Windows; cakupan dijalankan di runner POSIX")

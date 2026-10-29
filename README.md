@@ -2,6 +2,8 @@
 
 CLI universal setup & runtime untuk project Laravel — penerus `simpskba`.
 
+Per-project optional manifest lives at `avior.json` (omit for Laravel defaults). `setup.skip` names known setup steps; `setup.steps` appends executable-plus-args steps without shell evaluation; `env_required` lists required `.env` keys (and can opt production build manifest into required files). `services` accepts `queue`, `scheduler`, or `frontend`; runtime service overrides are not wired yet.
+
 Repo ini lahir lewat **staged rewrite** (lihat `adr:staged-rewrite-in-new-repo`):
 kode tidak dicopy mentah; migrasi fase demi fase mengikuti roadmap EKA.
 
