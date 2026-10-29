@@ -40,6 +40,19 @@ func TestWindowsCommandWrapsCmdScripts(t *testing.T) {
 	}
 }
 
+func TestSafeBatchPath(t *testing.T) {
+	for _, path := range []string{`C:\Program Files\Composer\composer.cmd`, `./tool.cmd`} {
+		if !safeBatchPath(path) {
+			t.Errorf("safeBatchPath(%q) = false", path)
+		}
+	}
+	for _, path := range []string{`C:\tools\bad&name.cmd`, `C:\tools\bad"name.cmd`, `C:\tools\bad%PATH%.cmd`} {
+		if safeBatchPath(path) {
+			t.Errorf("safeBatchPath(%q) = true", path)
+		}
+	}
+}
+
 func TestRunnerRunLabelSuccessAndDryRun(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("true bukan executable Windows; cakupan dijalankan di runner POSIX")

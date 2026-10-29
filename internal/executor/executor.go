@@ -76,6 +76,9 @@ func windowsCommand(name string, args []string) (string, []string) {
 	}
 	if strings.EqualFold(filepath.Ext(name), ".exe") || strings.EqualFold(filepath.Ext(name), ".com") || strings.EqualFold(filepath.Ext(name), ".bat") || strings.EqualFold(filepath.Ext(name), ".cmd") {
 		if runtime.GOOS == "windows" && (strings.EqualFold(filepath.Ext(name), ".bat") || strings.EqualFold(filepath.Ext(name), ".cmd")) {
+			if !safeBatchPath(name) {
+				return name, args
+			}
 			return "cmd.exe", append([]string{"/d", "/s", "/c", `"` + name + `"`}, args...)
 		}
 		return name, args
@@ -84,12 +87,24 @@ func windowsCommand(name string, args []string) (string, []string) {
 		candidate := name + ext
 		if _, err := exec.LookPath(candidate); err == nil {
 			if ext == ".cmd" || ext == ".bat" {
+				if !safeBatchPath(candidate) {
+					return candidate, args
+				}
 				return "cmd.exe", append([]string{"/d", "/s", "/c", `"` + candidate + `"`}, args...)
 			}
 			return candidate, args
 		}
 	}
 	return name, args
+}
+
+func safeBatchPath(path string) bool {
+	for _, r := range path {
+		if strings.ContainsRune(`"&|<>()^%!`, r) {
+			return false
+		}
+	}
+	return path != ""
 }
 
 func executablePath(name string) string {

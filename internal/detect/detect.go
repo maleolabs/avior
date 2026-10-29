@@ -38,6 +38,9 @@ func Version(name string, args ...string) Result {
 	}
 	command, commandArgs := p, args
 	if runtime.GOOS == "windows" && (strings.EqualFold(filepath.Ext(p), ".cmd") || strings.EqualFold(filepath.Ext(p), ".bat")) {
+		if !safeBatchPath(p) {
+			return Result{name, false, "path skrip Windows tidak aman"}
+		}
 		// cmd.exe reparses this command line; only permit literal version flags.
 		for _, arg := range args {
 			if !safeBatchArg(arg) {
@@ -64,6 +67,15 @@ func safeBatchArg(arg string) bool {
 		}
 	}
 	return true
+}
+
+func safeBatchPath(path string) bool {
+	for _, r := range path {
+		if strings.ContainsRune(`"&|<>()^%!`, r) {
+			return false
+		}
+	}
+	return path != ""
 }
 
 // conciseDetail menjaga output doctor tetap ringkas walau tool menulis
