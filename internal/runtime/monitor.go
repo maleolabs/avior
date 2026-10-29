@@ -79,6 +79,10 @@ func Attach(project string) (ProjectStatus, error) {
 
 // Stop stops only runtime registered for selected project root.
 func Stop(project string) error {
+	return stop(project, time.Sleep)
+}
+
+func stop(project string, wait func(time.Duration)) error {
 	statePath, registry, err := state.Paths(project)
 	if err != nil {
 		return err
@@ -106,11 +110,18 @@ func Stop(project string) error {
 		}
 		return state.RemoveStateIfOwner(statePath, st.MainPID)
 	}
-	deadline := time.Now().Add(7 * time.Second)
-	for time.Now().Before(deadline) && processgroup.ProcessAlive(st.MainPID) {
-		time.Sleep(25 * time.Millisecond)
+	if !waitForExit(st.MainPID, wait, processgroup.ProcessAlive) {
+		return fmt.Errorf("runtime: project %s still running after stop timeout", project)
 	}
 	return state.RemoveStateIfOwner(statePath, st.MainPID)
+}
+
+func waitForExit(pid state.Process, wait func(time.Duration), alive func(state.Process) bool) bool {
+	deadline := time.Now().Add(7 * time.Second)
+	for time.Now().Before(deadline) && alive(pid) {
+		wait(25 * time.Millisecond)
+	}
+	return !alive(pid)
 }
 
 func isRuntimeStateFile(name string) bool {
