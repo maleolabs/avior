@@ -19,6 +19,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/maleolabs/avior/internal/state"
 )
 
 type processRecord struct {
@@ -168,6 +170,15 @@ func StopManagedRuntime(path string, ownerPID int) bool {
 		removeExactRecords(path, owned)
 	}
 	return matched
+}
+
+// ProcessAlive reports whether recorded process identity still matches live PID.
+func ProcessAlive(process state.Process) bool {
+	if process.PID <= 0 || process.Command == "" || process.StartedAt.IsZero() {
+		return false
+	}
+	exe, _ := processIdentity(process.PID)
+	return exe != "" && executablesMatch(exe, process.Command)
 }
 
 // removeExactRecords avoids holding registry locks during process termination.
