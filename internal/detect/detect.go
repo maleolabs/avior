@@ -15,9 +15,9 @@ import (
 
 // Result adalah hasil satu pemeriksaan prerequisite.
 type Result struct {
-	Name   string
-	OK     bool
-	Detail string
+	Name   string `json:"name"`
+	OK     bool   `json:"ok"`
+	Detail string `json:"detail"`
 }
 
 // Version menjalankan tool dengan argumen version dan mengambil baris versi
