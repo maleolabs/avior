@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/maleolabs/avior/internal/brand"
 )
 
 func TestSelectCaddyPortKeepsAvailableConfiguredPort(t *testing.T) {
@@ -61,7 +63,7 @@ func TestWaitTLSReadyUsesExplicitServerNameWithoutTrustingLocalCA(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	if err := WaitTLSReady("avior.test", port, time.Second); err != nil {
+	if err := WaitTLSReady(brand.Name+".test", port, time.Second); err != nil {
 		t.Fatalf("WaitTLSReady() = %v", err)
 	}
 }
@@ -85,7 +87,7 @@ func TestCaddyPathFindsCheckoutStagingBinary(t *testing.T) {
 	if stdruntime.GOOS == "windows" {
 		name += ".exe"
 	}
-	want := filepath.Join(root, "tools", "avior", "dist", "bin", name)
+	want := filepath.Join(root, "tools", brand.Name, "dist", "bin", name)
 	if err := os.MkdirAll(filepath.Dir(want), 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +101,7 @@ func TestCaddyPathFindsCheckoutStagingBinary(t *testing.T) {
 }
 
 func TestCaddyConfigIsLocalhostOnly(t *testing.T) {
-	config := CaddyConfig("avior.test", "127.0.0.1:8000", 8080, true, "/tmp/certs")
+	config := CaddyConfig(brand.Name+".test", "127.0.0.1:8000", 8080, true, "/tmp/certs")
 	if !strings.Contains(config, "bind 127.0.0.1") || !strings.Contains(config, "reverse_proxy 127.0.0.1:8000") {
 		t.Fatalf("unsafe or incomplete config: %s", config)
 	}
@@ -112,7 +114,7 @@ func TestCaddyConfigIsLocalhostOnly(t *testing.T) {
 	if !strings.Contains(config, "admin 127.0.0.1:2019") {
 		t.Fatal("Caddy admin API must bind to the address used by the readiness probe")
 	}
-	if !strings.Contains(config, "https://avior.test:8080") {
+	if !strings.Contains(config, "https://"+brand.Name+".test:8080") {
 		t.Fatal("HTTPS config must use an explicit HTTPS site address")
 	}
 	if strings.Contains(config, "auto_https off") {
@@ -124,14 +126,14 @@ func TestCaddyConfigIsLocalhostOnly(t *testing.T) {
 }
 
 func TestCaddyConfigQuotesStoragePath(t *testing.T) {
-	config := CaddyConfig("avior.test", "127.0.0.1:8000", 8080, true, "/tmp/caddy storage/issuer")
+	config := CaddyConfig(brand.Name+".test", "127.0.0.1:8000", 8080, true, "/tmp/caddy storage/issuer")
 	if !strings.Contains(config, `storage file_system "/tmp/caddy storage/issuer"`) {
 		t.Fatalf("storage path must be a single Caddyfile token: %s", config)
 	}
 }
 
 func TestLocalDomainValidation(t *testing.T) {
-	for _, domain := range []string{"localhost", "app.localhost", "avior.test"} {
+	for _, domain := range []string{"localhost", "app.localhost", brand.Name + ".test"} {
 		if !ValidLocalDomain(domain) {
 			t.Errorf("expected valid %s", domain)
 		}

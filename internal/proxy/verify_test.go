@@ -10,6 +10,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/maleolabs/avior/internal/brand"
 )
 
 // writeFakeCaddy menulis script shell yang meniru `caddy version` — tanpa
@@ -148,10 +150,10 @@ func TestVersionMatches(t *testing.T) {
 
 func TestFileSHA256(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "f")
-	if err := os.WriteFile(path, []byte("avior"), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(brand.Name), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	sum := sha256.Sum256([]byte("avior"))
+	sum := sha256.Sum256([]byte(brand.Name))
 	want := hex.EncodeToString(sum[:])
 	got, err := fileSHA256(path)
 	if err != nil {

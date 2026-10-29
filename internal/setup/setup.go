@@ -1,6 +1,6 @@
 // Package setup menjalankan alur setup proyek Laravel sebagai step-pipeline
 // (arc:avior-architecture): daftar Step terurut yang dikomposisi per mode —
-// BUKAN dua blok if development/production seperti simpskba. Semua output
+// BUKAN dua blok if development/production seperti codebase pendahulu. Semua output
 // lewat io.Writer yang di-inject (Options.Out); .env dibaca TEPAT SATU kali
 // per run (single-pass) dan nilai aktual di-thread antar step lewat run.values.
 package setup
@@ -350,7 +350,7 @@ func (r *run) npmInstall() error {
 
 // ensureAppKey mengisi APP_KEY bila kosong dengan format identik fallback
 // legacy (base64 32-byte, ditulis env.Update yang quote-safe).
-// ponytail: deviasi dari simpskba — artisan key:generate tidak dipanggil
+// ponytail: deviasi dari codebase pendahulu — artisan key:generate tidak dipanggil
 // karena menulis .env di belakang punggung sehingga butuh re-read (melanggar
 // single-pass env read); nilai akhir di .env identik. Kembalikan jalur
 // artisan bila semantics generation sisi Laravel dibutuhkan.

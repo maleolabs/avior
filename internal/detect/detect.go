@@ -1,6 +1,6 @@
 // Package detect memeriksa prerequisite proyek generik (file wajib, tool di
-// PATH). Diport dari simpskba tanpa perubahan perilaku; mode memakai tipe
-// mode.Mode tunggal [arc:avior-architecture].
+// PATH). Diport dari codebase pendahulu tanpa perubahan perilaku; mode memakai
+// tipe mode.Mode tunggal [arc:avior-architecture].
 package detect
 
 import (

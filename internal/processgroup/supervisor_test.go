@@ -9,6 +9,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/maleolabs/avior/internal/brand"
 )
 
 // waitReady menunggu stub menandai dirinya siap (trap terpasang).
@@ -239,7 +241,7 @@ func TestWaitAndTerminateConcurrent(t *testing.T) {
 
 // 7. Start gagal untuk binary tak ada: error kembali, tanpa goroutine reaper.
 func TestStartNonexistentFails(t *testing.T) {
-	if _, err := Start("avior-definitely-not-a-binary-xyz"); err == nil {
+	if _, err := Start(brand.Name + "-definitely-not-a-binary-xyz"); err == nil {
 		t.Fatal("Start binary tak ada harus error")
 	}
 }
