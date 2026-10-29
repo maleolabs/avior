@@ -2,3 +2,4 @@ dist/
 bin/
 *.exe
 coverage.out
+*.txt
