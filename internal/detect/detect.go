@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/maleolabs/avior/internal/mode"
@@ -24,10 +25,22 @@ type Result struct {
 // dengan OK=false — doctor menampilkan semua baris, tidak berhenti di awal.
 func Version(name string, args ...string) Result {
 	p, err := exec.LookPath(name)
+	if err != nil && runtime.GOOS == "windows" && filepath.Ext(name) == "" {
+		for _, ext := range []string{".exe", ".com", ".cmd", ".bat"} {
+			if candidate, lookupErr := exec.LookPath(name + ext); lookupErr == nil {
+				p, err = candidate, nil
+				break
+			}
+		}
+	}
 	if err != nil {
 		return Result{name, false, "tidak ditemukan"}
 	}
-	out, err := exec.Command(p, args...).CombinedOutput()
+	command, commandArgs := p, args
+	if runtime.GOOS == "windows" && (strings.EqualFold(filepath.Ext(p), ".cmd") || strings.EqualFold(filepath.Ext(p), ".bat")) {
+		command, commandArgs = "cmd.exe", append([]string{"/d", "/s", "/c", `"` + p + `"`}, args...)
+	}
+	out, err := exec.Command(command, commandArgs...).CombinedOutput()
 	detail := conciseDetail(string(out))
 	if err != nil {
 		return Result{name, false, detail}

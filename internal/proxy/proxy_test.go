@@ -1,7 +1,11 @@
 package proxy
 
 import (
+	"archive/tar"
+	"compress/gzip"
+	"context"
 	"net"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -13,6 +17,54 @@ import (
 
 	"github.com/maleolabs/avior/internal/brand"
 )
+
+func TestCaddyArchivePlatformName(t *testing.T) {
+	if CaddyVersion == "" || stdruntime.GOOS == "" || stdruntime.GOARCH == "" {
+		t.Fatal("platform and pinned version required")
+	}
+	want := "https://github.com/caddyserver/caddy/releases/download/v" + CaddyVersion + "/caddy_" + CaddyVersion + "_" + stdruntime.GOOS + "_" + stdruntime.GOARCH + ".tar.gz"
+	if got := fetchArchiveURL(); got != want {
+		t.Fatalf("archive URL=%q want %q", got, want)
+	}
+}
+
+func TestFetchCaddyExtractsOnlyBinaryAndRejectsMissing(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		include bool
+		wantErr bool
+	}{{"caddy", true, false}, {"other", false, true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gz := gzip.NewWriter(w)
+				tw := tar.NewWriter(gz)
+				name := tc.name
+				if name == "caddy" && stdruntime.GOOS == "windows" {
+					name += ".exe"
+				}
+				_ = tw.WriteHeader(&tar.Header{Name: name, Mode: 0755, Size: 4, Typeflag: tar.TypeReg})
+				_, _ = tw.Write([]byte("data"))
+				_ = tw.Close()
+				_ = gz.Close()
+			}))
+			defer server.Close()
+			old := urlOverride
+			urlOverride = func() string { return server.URL }
+			defer func() { urlOverride = old }()
+			dest := filepath.Join(t.TempDir(), "caddy")
+			err := FetchCaddy(context.Background(), dest)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("FetchCaddy err=%v", err)
+			}
+			if !tc.wantErr {
+				b, readErr := os.ReadFile(dest)
+				if readErr != nil || string(b) != "data" {
+					t.Fatalf("binary=%q err=%v", b, readErr)
+				}
+			}
+		})
+	}
+}
 
 func TestSelectCaddyPortKeepsAvailableConfiguredPort(t *testing.T) {
 	port := freePort(t)

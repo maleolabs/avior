@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 
 	"github.com/maleolabs/avior/internal/ui"
@@ -47,6 +49,7 @@ func (r Runner) RunLabel(label, name string, args ...string) error {
 		fmt.Fprintf(r.Out, "  ✓ %s [dry-run]\n", label)
 		return nil
 	}
+	name, args = windowsCommand(name, args)
 	c := exec.Command(name, args...) // argumen-list; sengaja TANPA shell
 	c.Dir = r.Root
 	// Tangkap kedua stream: output berguna bisa di stdout (bukan hanya stderr).
@@ -67,8 +70,31 @@ func (r Runner) RunLabel(label, name string, args ...string) error {
 	return nil
 }
 
+func windowsCommand(name string, args []string) (string, []string) {
+	if runtime.GOOS != "windows" {
+		return name, args
+	}
+	if strings.EqualFold(filepath.Ext(name), ".exe") || strings.EqualFold(filepath.Ext(name), ".com") || strings.EqualFold(filepath.Ext(name), ".bat") || strings.EqualFold(filepath.Ext(name), ".cmd") {
+		if runtime.GOOS == "windows" && (strings.EqualFold(filepath.Ext(name), ".bat") || strings.EqualFold(filepath.Ext(name), ".cmd")) {
+			return "cmd.exe", append([]string{"/d", "/s", "/c", `"` + name + `"`}, args...)
+		}
+		return name, args
+	}
+	for _, ext := range []string{".exe", ".com", ".cmd", ".bat"} {
+		candidate := name + ext
+		if _, err := exec.LookPath(candidate); err == nil {
+			if ext == ".cmd" || ext == ".bat" {
+				return "cmd.exe", append([]string{"/d", "/s", "/c", `"` + candidate + `"`}, args...)
+			}
+			return candidate, args
+		}
+	}
+	return name, args
+}
+
 func executablePath(name string) string {
-	path, err := exec.LookPath(name)
+	resolved, _ := windowsCommand(name, nil)
+	path, err := exec.LookPath(resolved)
 	if err != nil {
 		return fmt.Sprintf("%s (tidak ditemukan: %v)", name, err)
 	}
