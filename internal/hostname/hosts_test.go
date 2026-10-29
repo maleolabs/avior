@@ -21,12 +21,12 @@ func TestEnsureHostUsesInjectedWriterAndCleanup(t *testing.T) {
 	privilegePreflight = func(string) error { return nil }
 	privilegedWriter = func(p string, data []byte) error { return os.WriteFile(p, data, 0644) }
 
-	cleanup, err := EnsureHost("Avior.test.", true)
+	cleanup, err := EnsureHost(strings.ToUpper(brand.Name[:1])+brand.Name[1:]+".test.", true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	got, _ := os.ReadFile(path)
-	want := "127.0.0.1 other.test\n127.0.0.1 avior.test " + brand.HostsMarker + " avior.test\n"
+	want := "127.0.0.1 other.test\n127.0.0.1 " + brand.Name + ".test " + brand.HostsMarker + " " + brand.Name + ".test\n"
 	if string(got) != want {
 		t.Fatalf("unexpected hosts content: %q", got)
 	}
@@ -74,9 +74,9 @@ func TestEnsureHostPreflightsBeforeWriter(t *testing.T) {
 }
 
 func TestManagedHostRemovalOnlyRemovesExactOwnedLine(t *testing.T) {
-	line := managedHostLine("avior.test")
-	input := "127.0.0.1 other.test\n" + line + "\n127.0.0.1 avior.test # user entry\n"
-	want := "127.0.0.1 other.test\n127.0.0.1 avior.test # user entry\n"
+	line := managedHostLine(brand.Name + ".test")
+	input := "127.0.0.1 other.test\n" + line + "\n127.0.0.1 " + brand.Name + ".test # user entry\n"
+	want := "127.0.0.1 other.test\n127.0.0.1 " + brand.Name + ".test # user entry\n"
 	if got := removeManagedHost(input, line); got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}

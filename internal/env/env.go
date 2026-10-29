@@ -218,7 +218,7 @@ func Update(src io.Reader, key, secret string) ([]byte, error) {
 // last-win: duplikat key, nilai terakhir yang efektif. Ini satu-satunya cara
 // membaca .env dari luar package — lapis lain (setup, runtime, discovery)
 // WAJIB lewat sini; parser Parse tidak boleh diduplikasi (arc:avior-architecture:
-// tidak ada parser .env kedua, menghabiskan duplikasi 3x simpskba:
+// tidak ada parser .env kedua, menghabiskan duplikasi 3x di codebase pendahulu:
 // env.Read, runtime.dotenvValues, discovery.env).
 func ReadFile(path string) (map[string]string, error) {
 	f, err := os.Open(path)
@@ -241,7 +241,7 @@ func ReadFile(path string) (map[string]string, error) {
 
 // ReadEffective mengembalikan nilai efektif key untuk project di root:
 // environment proses menang atas .env (precedence runtime effectiveEnv dan
-// discovery.env di simpskba — env eksplisit dari CLI tidak boleh ditimpa
+// discovery.env di codebase pendahulu — env eksplisit dari CLI tidak boleh ditimpa
 // file), fallback nilai .env di root. File tak ada/tak terbaca berarti
 // ("", false): lookup best-effort, sesuai perilaku ketiga call site legacy.
 // ponytail: parse error ikut fail-closed ke tidak-ada; saat discovery
@@ -275,7 +275,7 @@ func ValidateKey(key string) error {
 }
 
 // Validate memeriksa konfigurasi minimum yang dibutuhkan mode terpilih.
-// Diport dari simpskba (setup-side env validation); mode memakai tipe
+// Diport dari codebase pendahulu (setup-side env validation); mode memakai tipe
 // mode.Mode tunggal, bukan string [arc:avior-architecture].
 func Validate(values map[string]string, m mode.Mode) error {
 	required := []string{"APP_KEY", "APP_ENV", "DB_CONNECTION"}

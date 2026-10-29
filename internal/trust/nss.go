@@ -33,7 +33,7 @@ func resourceDirEnv() string {
 // PATH untuk kompatibilitas.
 func bundledCertutil(binary string, resourceRoots ...string) (string, error) {
 	// Arsip release menyimpan CLI dan resource-nya di bawah
-	// <release>/tools/avior/. os.Executable biasanya menunjuk binary asli,
+	// <release>/tools/<nama-tool>/. os.Executable biasanya menunjuk binary asli,
 	// tapi launcher/symlink development bisa meninggalkan layout staging atau
 	// hanya direktori executable. Coba semua layout secara eksplisit.
 	base := filepath.Dir(binary)
@@ -48,7 +48,7 @@ func bundledCertutil(binary string, resourceRoots ...string) (string, error) {
 	}
 	// CLI terinstal global bisa dijalankan dari luar proyek. Runtime root
 	// menjadi anchor stabil resource bundulan, mengikuti layout Caddy:
-	// <root>/tools/avior/nss.
+	// <root>/tools/<nama-tool>/nss.
 	for _, root := range resourceRoots {
 		if root = strings.TrimSpace(root); root != "" {
 			manifestPaths = append(manifestPaths,

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/maleolabs/avior/internal/brand"
 )
 
 // roundTrip memvalidasi Quote -> Parse mengembalikan nilai identik (semantik
@@ -81,7 +83,7 @@ func TestUpdateRoundTrip(t *testing.T) {
 }
 
 func TestUpdateExistingFile(t *testing.T) {
-	src := "# konfigurasi aplikasi\nAPP_NAME=avior\n\nDB_HOST=localhost\n"
+	src := "# konfigurasi aplikasi\nAPP_NAME=" + brand.Name + "\n\nDB_HOST=localhost\n"
 	out, err := Update(strings.NewReader(src), "DB_PASSWORD", `p#ass "word"`)
 	if err != nil {
 		t.Fatalf("Update error: %v", err)
@@ -97,7 +99,7 @@ func TestUpdateExistingFile(t *testing.T) {
 		}
 	}
 	want := map[string]string{
-		"APP_NAME":    "avior",
+		"APP_NAME":    brand.Name,
 		"DB_HOST":     "localhost",
 		"DB_PASSWORD": `p#ass "word"`,
 	}

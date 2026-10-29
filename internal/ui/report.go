@@ -46,7 +46,7 @@ func RenderError(w io.Writer, err error) {
 	ErrorCard(w, err.Error())
 }
 
-// ErrorCard menulis kartu error bentuk legacy simpskba — setiap baris pesan
+// ErrorCard menulis kartu error bentuk legacy codebase pendahulu — setiap baris pesan
 // di-frame independen (penting untuk pesan validasi multi-blok).
 // ponytail: warna/ANSI ditunda sampai layer style (tanpa golang.org/x/term)
 // ada; kartu polosa ini sudah aman untuk buffer & pipe.

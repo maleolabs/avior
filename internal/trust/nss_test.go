@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/maleolabs/avior/internal/brand"
 )
 
 func TestBundledCertutilVerifiesManifest(t *testing.T) {
@@ -25,7 +27,7 @@ func TestBundledCertutilVerifiesManifest(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(nss, "MANIFEST.json"), b, 0600); err != nil {
 		t.Fatal(err)
 	}
-	got, err := bundledCertutil(filepath.Join(dir, "avior"))
+	got, err := bundledCertutil(filepath.Join(dir, brand.Name))
 	if err != nil || got != p {
 		t.Fatalf("got %q, %v; want %q", got, err, p)
 	}
@@ -33,7 +35,7 @@ func TestBundledCertutilVerifiesManifest(t *testing.T) {
 	if err := os.WriteFile(p, data, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := bundledCertutil(filepath.Join(dir, "avior")); err == nil {
+	if _, err := bundledCertutil(filepath.Join(dir, brand.Name)); err == nil {
 		t.Fatal("expected checksum failure")
 	}
 }
@@ -55,8 +57,8 @@ func TestBundledCertutilUsesExplicitResourceDirectory(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(nss, "MANIFEST.json"), b, 0600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("AVIOR_RESOURCE_DIR", filepath.Join(dir, "resources"))
-	got, err := bundledCertutil(filepath.Join(dir, "bin", "avior"))
+	t.Setenv(resourceDirEnv(), filepath.Join(dir, "resources"))
+	got, err := bundledCertutil(filepath.Join(dir, "bin", brand.Name))
 	if err != nil || got != p {
 		t.Fatalf("got %q, %v; want %q", got, err, p)
 	}
@@ -64,7 +66,7 @@ func TestBundledCertutilUsesExplicitResourceDirectory(t *testing.T) {
 
 func TestBundledCertutilUsesRuntimeRoot(t *testing.T) {
 	dir := t.TempDir()
-	nss := filepath.Join(dir, "tools", "avior", "nss")
+	nss := filepath.Join(dir, "tools", brand.Name, "nss")
 	if err := os.MkdirAll(nss, 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -79,9 +81,9 @@ func TestBundledCertutilUsesRuntimeRoot(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(nss, "MANIFEST.json"), b, 0600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("AVIOR_RESOURCE_DIR", "")
+	t.Setenv(resourceDirEnv(), "")
 
-	got, err := bundledCertutil(filepath.Join(t.TempDir(), "bin", "avior"), dir)
+	got, err := bundledCertutil(filepath.Join(t.TempDir(), "bin", brand.Name), dir)
 	if err != nil || got != p {
 		t.Fatalf("got %q, %v; want %q", got, err, p)
 	}
