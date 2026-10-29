@@ -38,6 +38,12 @@ func Version(name string, args ...string) Result {
 	}
 	command, commandArgs := p, args
 	if runtime.GOOS == "windows" && (strings.EqualFold(filepath.Ext(p), ".cmd") || strings.EqualFold(filepath.Ext(p), ".bat")) {
+		// cmd.exe reparses this command line; only permit literal version flags.
+		for _, arg := range args {
+			if !safeBatchArg(arg) {
+				return Result{name, false, "argumen tidak aman untuk skrip Windows"}
+			}
+		}
 		command, commandArgs = "cmd.exe", append([]string{"/d", "/s", "/c", `"` + p + `"`}, args...)
 	}
 	out, err := exec.Command(command, commandArgs...).CombinedOutput()
@@ -46,6 +52,18 @@ func Version(name string, args ...string) Result {
 		return Result{name, false, detail}
 	}
 	return Result{name, true, detail}
+}
+
+func safeBatchArg(arg string) bool {
+	if arg == "" {
+		return false
+	}
+	for _, r := range arg {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("._-", r)) {
+			return false
+		}
+	}
+	return true
 }
 
 // conciseDetail menjaga output doctor tetap ringkas walau tool menulis
