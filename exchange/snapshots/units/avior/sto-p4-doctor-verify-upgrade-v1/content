@@ -1,0 +1,1 @@
+{"description":"verify mode-aware (development/production) + opsi --json untuk doctor/verify (CI-friendly).","acceptanceCriteria":"verify production tersedia; --json mengeluarkan hasil machine-readable; test."}

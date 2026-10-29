@@ -1,0 +1,1 @@
+{"description":"Registry seluruh operasi (state, ticket membership runtime, heartbeat) konsisten keyed per project di semua code path.","acceptanceCriteria":"Audit: tidak ada akses state global; test dua project aktif simultan."}

@@ -1,0 +1,1 @@
+{"objective":"F4 — multi-project: registry/state keyed per project; monitor/attach/stop per project.","workItems":"p4-project-scoped-registry; p4-multi-runtime-monitor; p4-doctor-verify-upgrade","changeLog":"2026-10-28 dibuat dari plan:avior-transformation (approved)."}

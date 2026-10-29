@@ -1,22 +1,32 @@
 # Execution State
-scope: ctr:phase-2-rebrand
+scope: ctr:phase-4-multi-project
 updated: 2026-10-29
 status: completed
 mode: delegated
 items:
-- avior/sto:p2-brand-contract: done  # 2196d8e+6a4031a merged to main (225f0ac); qa/code approve (fix 1 MAJOR + 2 MINOR); worktree cleaned
-- avior/sto:p2-rename-sweep: done  # a961e1b+ce0ec49 merged to main (0e0ccdf); qa/code/security approve; worktree cleaned
-- avior/sto:p2-retire-legacy-identity: done  # a09492f+9150386 merged to main (6dd1c8c); qa/product approve, code review REQUEST_CHANGES -> fixed -> approve; worktree cleaned
-- avior/sto:p2-e2e-smoke: done  # 4708da8+3291b98 merged to main (31b470b); qa/code approve (4 Low fixed); worktree cleaned
-current: (none — container completed)
-next: ctr:phase-3-generalization (activate when ready)
+- avior/sto:p4-project-scoped-registry: done
+- avior/sto:p4-multi-runtime-monitor: done
+- avior/sto:p4-doctor-verify-upgrade: done
+current:
+  item: (none — container completed)
+  phase: merged
+  worktree: (all item branches merged; cleanup not completed)
+  pending: remove completed item worktrees/branches if safe; no scope remains.
+next: ctr:phase-5-distribution (planned; do not auto-activate)
 decisions:
-- carried: integration branch = main; worktree path ABSOLUTE ../avior-worktrees/ from repo root; sequential (semua item sentuh file identitas yang sama)
-- p2-brand-contract: gate grep count-based (allowlist map[string]int pin jumlah baris literal per file) — sweep turunkan count ke 0 lalu hapus entri; stripSkipped utk import path + arc tag; pin exact StateDir ~/.local/share/avior
-- p2-brand-contract: sisa literal utk sweep = module path go.mod+import, komentar historis simpskba (detect/env/setup/ui), fixtures test, komentar roadmap main.go + nss.go; NITPICK reviewer: dead condition + reason text di contract_test.go ikut dihabiskan saat sweep
-- p2-retire-legacy-identity: README migrasi 4 langkah + verifikasi (System+login keychain macOS, certmgr.msc Windows, hosts per-OS, NSS 2 path); rename C sim_add_trust/sim_remove_trust -> add_trust/remove_trust; RISK: build darwin+cgo belum terverifikasi (host linux) — verifikasi di host macOS sebelum rilis
-- p2-e2e-smoke: harness e2e/e2e_test.go (tag e2e) reusable utk cmd/ — go test -tags e2e ./e2e; hosts privileged opt-in E2E_ALLOW_HOSTS=1; Caddy v2.10.2 terverifikasi HTTP+HTTPS; FINDING WAJIB cmd/serve: konflik schema runtime-processes-<tok>.json (state.SaveProcesses 0644 vs processgroup.RegisterProcess 0600, satu path) — pilih satu pemilik file sebelum wiring
-- SECURITY CARRIED MAJOR: VerifyManaged belum ter-wire ke InstallCaddy (trust.go:106, zero call site produksi) — wire + test struktural saat item cmd layer/sudo-trust; manual verify caddy trust macOS saat item macOS trust (dari p1 + security-review p2-rename-sweep)
-- p2-rename-sweep: gate isBrandLiteral kini deteksi simpskba+sim-pskba+avior; fixture hosts_test = EnsureHost(upper(Name)+'.test.', true)
-- gates butuh GOFLAGS=-buildvcs=false (repo tanpa tag — pre-existing; opsional tag v0.0.1 nanti)
-resume: (nothing to resume — scope completed; next: /eka-execute ctr:phase-3-generalization)
+- activated avior/ctr:phase-4-multi-project; container activation atomically locked plan (state immutable).
+- primed all 3 ticketed planned items to todo.
+- repository development branch main; worktree root ../avior-worktrees/; sequential convention.
+- DELEGATION.txt found after pause; all roles map to named agents, so fresh mode delegated. Earlier session had failed to locate it; checkpoint mode updated for this run.
+- User clarified Avior is rebrand of legacy project; original source located at /home/m2codeloan/m2code/maleolabs/tools/simpskba/tools/simpskba. Backend implemented adaptation in dedicated worktree.
+- Item commits 130aafc + 7b36ddd merged to main as 180e622 before in-review.
+- Implementation cmt avior/cmt:p4-project-scoped-registry-implementation:1 and review cmt avior/cmt:p4-project-scoped-registry-review:1 + avior/cmt:p4-project-scoped-registry-review-2:1 published resolved.
+- Latest QA PASS WITH OBSERVATIONS; code review approve. PID-reuse TOCTOU on Unix remains residual non-blocking risk; Windows tests cross-compiled but not executed.
+- p4-multi-runtime-monitor merged to main as 8cfe922. CLI monitor is selected-project scoped; attach/stop take explicit project or cwd. Stop retains state if runtime remains alive after timeout; Monitor/Attach reject mismatched state ownership. EKA item transition to in-progress re-applied after prior unsafe premature checkpoint edit; actual canonical state is now in-progress.
+- Monitor feature commits: 1839368, 11fa26e, a093247, e9a0b31, 49bc971, f79150b, d842224, e49895d; merged commit 8cfe922. Final branch tests/vet passed. Monitor output exact-row and project-path existence checks are local uncommitted follow-up edits in main.go/main_test.go; go test/vet pass, not committed yet.
+- Monitor review approved; QA PASS WITH OBSERVATIONS, symlink-unresolved path edge noted. Windows-specific verification not rerun for this item.
+- Doctor/verify merged to main as b8688e2. Commits include 504f81d, 6f8ab93, ecd74ce, acf3c5b, a16bc33, e97dd59, 671cf02, integration merge 35ceaae/b8688e2. QA PASS, reviewer approve; native Windows execution not run, cross-build passed.
+- All three phase-4 items transitioned done; container transitioned completed. Snapshot push final digest 13aa5457665dd14d47eb58900cf5b15095a26c0eb2d891133ed38d81dd506d8d.
+- skills unavailable: eka-knowledge-retrieval, eka-knowledge-modification; inline rules used.
+- sync push reports snapshot rewritten due canonical store/repository mismatch; no integrity check run yet.
+resume: reconcile approved plan vs missing implementation base; inspect integration branches/worktrees and item dependencies; obtain runtime/CLI integration on main before resuming implementation. Keep active container and todo state; do not re-prime.

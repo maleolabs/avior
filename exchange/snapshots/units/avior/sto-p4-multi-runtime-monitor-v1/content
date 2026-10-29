@@ -1,0 +1,1 @@
+{"description":"Monitor/attach/stop antar project: pilih project aktif, tampilkan status semua runtime project, stop per project.","acceptanceCriteria":"Monitor menampilkan hanya project terkait; stop project A tidak menyentuh project B; test."}
