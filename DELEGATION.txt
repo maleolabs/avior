@@ -1,0 +1,16 @@
+# EKA delegation table — rendered from the embedded eka-mcp skill pack v1.15.0
+# ecosystem: opencode
+# name:      opencode + maleolabs agents
+# source:    req:agent-agnostic-skill-pack R4 (default reference mapping)
+# roles form the closed 9-role vocabulary of req:agent-agnostic-skill-pack (R2)
+
+role             mode      agent                      note
+architect        delegate  alex-architect
+backend          delegate  alex-backend               light variant: alex-backend-light
+frontend         delegate  alex-frontend              advanced UI variant: alex-frontend-ui
+security-review  delegate  alex-security
+code-review      delegate  alex-reviewer
+product-review   delegate  althea-product-specialist  absorbs althea-ux-specialist and althea-review-specialist (R2)
+qa               delegate  alex-qa
+devops           delegate  alex-devops
+documenter       delegate  alex-documenter
