@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -59,6 +60,47 @@ func TestMonitorAndProjectScopedCommands(t *testing.T) {
 	}
 	if _, exists, err := state.LoadState(pa); err != nil || !exists {
 		t.Fatalf("unsafe stop removed state A: exists=%v err=%v", exists, err)
+	}
+}
+
+func TestDoctorVerifyCLI(t *testing.T) {
+	root := t.TempDir()
+	for _, command := range []string{"doctor", "verify"} {
+		for _, args := range [][]string{{command}, {command, "production"}, {command, "--json"}, {command, "development", root}} {
+			var out bytes.Buffer
+			err := run(args, &out)
+			if command == "doctor" && err == nil {
+				t.Fatal("doctor unexpectedly passed empty project")
+			}
+			if args[len(args)-1] == "--json" {
+				var report map[string]any
+				if decodeErr := json.Unmarshal(out.Bytes(), &report); decodeErr != nil {
+					t.Fatalf("%v output not JSON: %q (%v)", args, out.String(), decodeErr)
+				}
+			}
+		}
+	}
+	for _, args := range [][]string{
+		{"doctor", "development", "production"}, {"verify", "development", "production"},
+		{"doctor", "--json", "--json"}, {"verify", "--json", "--json"},
+		{"doctor", filepath.Join(root, "missing")}, {"verify", filepath.Join(root, "missing")},
+		{"doctor", "--bogus"}, {"verify", "--bogus"},
+	} {
+		if err := run(args, &bytes.Buffer{}); err == nil {
+			t.Errorf("accepted invalid args %v", args)
+		}
+	}
+	var out bytes.Buffer
+	err := run([]string{"verify", "--json", root}, &out)
+	if err == nil {
+		t.Fatal("verify accepted failed prerequisites")
+	}
+	var report map[string]any
+	if decodeErr := json.Unmarshal(out.Bytes(), &report); decodeErr != nil {
+		t.Fatalf("failure output not JSON only: %q (%v)", out.String(), decodeErr)
+	}
+	if report["ok"] != false {
+		t.Fatalf("failure report missing ok=false: %v", report)
 	}
 }
 

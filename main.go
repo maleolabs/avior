@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/maleolabs/avior/internal/brand"
 	"github.com/maleolabs/avior/internal/diagnostic"
@@ -113,25 +114,30 @@ func runDiagnostic(args []string, out io.Writer) error {
 	command := args[0]
 	selected := "development"
 	jsonOutput := false
+	modeSet, jsonSet := false, false
 	root := ""
 	for _, arg := range args[1:] {
 		switch arg {
 		case "development", "production":
+			if modeSet {
+				return fmt.Errorf("%s accepts only one mode", command)
+			}
+			modeSet = true
 			selected = arg
 		case "--json":
+			if jsonSet {
+				return fmt.Errorf("%s accepts --json only once", command)
+			}
+			jsonSet = true
 			jsonOutput = true
 		default:
 			if len(root) != 0 {
 				return fmt.Errorf("%s accepts at most one project path", command)
 			}
-			root = arg
-		}
-	}
-	if command == "verify" && len(args) > 1 {
-		for _, arg := range args[1:] {
-			if arg != "--json" && arg != "development" && arg != "production" {
-				return fmt.Errorf("verify accepts only [development|production] [--json]")
+			if strings.HasPrefix(arg, "-") {
+				return fmt.Errorf("unknown %s flag %q", command, arg)
 			}
+			root = arg
 		}
 	}
 	m, err := mode.ParseMode(selected)
@@ -162,6 +168,9 @@ func runDiagnostic(args []string, out io.Writer) error {
 	}
 	if !report.OK {
 		if command == "verify" {
+			if jsonOutput {
+				return fmt.Errorf("verify failed; see JSON report (ok=false)")
+			}
 			return fmt.Errorf("verify gagal: %s", report.Missing[0])
 		}
 		return fmt.Errorf("doctor gagal: prerequisite belum tersedia")

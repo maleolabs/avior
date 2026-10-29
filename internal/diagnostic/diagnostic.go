@@ -33,13 +33,17 @@ func Write(w io.Writer, report Report, asJSON bool) error {
 	if asJSON {
 		return json.NewEncoder(w).Encode(report)
 	}
-	fmt.Fprintf(w, "\n╭─ %s · %s\n╰─\n", brand.Name, report.Mode)
+	if _, err := fmt.Fprintf(w, "\n╭─ %s · %s\n╰─\n", brand.Name, report.Mode); err != nil {
+		return err
+	}
 	for _, check := range report.Checks {
 		mark := "✓ READY"
 		if !check.OK {
 			mark = "✗ MISSING"
 		}
-		fmt.Fprintf(w, "  %-24s %-10s %s\n", check.Name, mark, check.Detail)
+		if _, err := fmt.Fprintf(w, "  %-24s %-10s %s\n", check.Name, mark, check.Detail); err != nil {
+			return err
+		}
 	}
 	return nil
 }
