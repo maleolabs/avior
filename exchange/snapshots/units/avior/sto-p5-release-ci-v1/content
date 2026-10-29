@@ -1,0 +1,1 @@
+{"description":"Release CI cross-platform; perbaiki H4 macOS: fallback non-cgo security add-trusted-cert ATAU build darwin dengan CGO di host macOS.","acceptanceCriteria":"CI membangun linux/darwin/windows; binary darwin bisa trust Keychain (fallback atau CGO); arsip terbit otomatis."}

@@ -1,0 +1,1 @@
+{"description":"Manifest checksum otomatis (Caddy SHA-512, NSS certutil SHA-256) diregenerasi pipeline; CLI selalu verifikasi (H3 seal).","acceptanceCriteria":"Release menghasilkan manifest checksum; CLI menolak binary mismatch; test verifier."}

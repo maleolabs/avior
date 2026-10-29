@@ -1,0 +1,1 @@
+{"description":"Channel install: go install, arsip release + launcher; README instruksi migrasi sekali-jalan dari simpskba.","acceptanceCriteria":"go install jalan; arsip production diekstrak dan launcher jalan tanpa PATH; README migrasi lengkap."}

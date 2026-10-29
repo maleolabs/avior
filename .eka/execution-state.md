@@ -18,7 +18,7 @@ decisions:
 - primed all 3 ticketed planned items to todo.
 - repository development branch main; worktree root ../avior-worktrees/; sequential convention.
 - DELEGATION.txt found after pause; all roles map to named agents, so fresh mode delegated. Earlier session had failed to locate it; checkpoint mode updated for this run.
-- User clarified Avior is rebrand of legacy project; original source located at /home/m2codeloan/m2code/maleolabs/tools/simpskba/tools/simpskba. Backend implemented adaptation in dedicated worktree.
+- User clarified Avior is rebrand of legacy project; original source lives in the legacy reference repository (path withheld per dec:execution-context-contract). Backend implemented adaptation in dedicated worktree.
 - Item commits 130aafc + 7b36ddd merged to main as 180e622 before in-review.
 - Implementation cmt avior/cmt:p4-project-scoped-registry-implementation:1 and review cmt avior/cmt:p4-project-scoped-registry-review:1 + avior/cmt:p4-project-scoped-registry-review-2:1 published resolved.
 - Latest QA PASS WITH OBSERVATIONS; code review approve. PID-reuse TOCTOU on Unix remains residual non-blocking risk; Windows tests cross-compiled but not executed.
