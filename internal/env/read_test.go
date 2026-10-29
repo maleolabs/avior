@@ -22,7 +22,8 @@ func TestReadFileValues(t *testing.T) {
 		"EMPTY=\n" +
 		"EMPTY_QUOTED=\"\"\n" +
 		"DUPE=salah\n" +
-		"DUPE=benar\n"
+		"DUPE=benar\n" +
+		`STRAY_CLOSE=abc"def` + "\n" // kutip tutup liar tanpa pembuka — literal
 	path := filepath.Join(t.TempDir(), ".env")
 	if err := os.WriteFile(path, []byte(src), 0600); err != nil {
 		t.Fatal(err)
@@ -43,6 +44,7 @@ func TestReadFileValues(t *testing.T) {
 		"EMPTY":        "",
 		"EMPTY_QUOTED": "",
 		"DUPE":         "benar", // last-win
+		"STRAY_CLOSE":  `abc"def`,
 	}
 	for k, w := range want {
 		if got[k] != w {
@@ -99,5 +101,14 @@ func TestReadEffective(t *testing.T) {
 	// Root tanpa .env — best-effort, bukan error.
 	if v, ok := ReadEffective(t.TempDir(), "APP_ENV"); v != "" || ok {
 		t.Errorf("tanpa .env: got (%q, %v), want (empty, false)", v, ok)
+	}
+
+	// .env rusak (baris bukan assignment) — fail-closed, bukan panic/partial.
+	brokenRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(brokenRoot, ".env"), []byte("BUKAN_ASSIGNMENT\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if v, ok := ReadEffective(brokenRoot, "APP_ENV"); v != "" || ok {
+		t.Errorf(".env rusak: got (%q, %v), want (empty, false)", v, ok)
 	}
 }
