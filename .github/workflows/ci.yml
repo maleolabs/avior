@@ -22,6 +22,31 @@ jobs:
           cache: true
       - run: go test ./...
 
+  # go vet sebagai gate tersendiri: temuan = build gagal. Sengaja Linux saja —
+  # vet lintas-GOOS (windows) masih menandai unsafe.Pointer yang disengaja di
+  # internal/trust/windows_trust.go (ponytail, dilarang disentuh item ini).
+  vet:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go vet ./...
+
+  # Smoke e2e siklus penuh (setup → serve → stop → Caddy nyata) pada runner
+  # Linux. Test offline-aware: tanpa jaringan/Caddy, kasus Caddy skip sendiri.
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go test -tags e2e ./e2e/...
+
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: test
