@@ -8,7 +8,7 @@ package trust
 #include <Security/Security.h>
 #include <CoreFoundation/CoreFoundation.h>
 
-static OSStatus sim_add_trust(const UInt8 *bytes, CFIndex length) {
+static OSStatus add_trust(const UInt8 *bytes, CFIndex length) {
     CFDataRef data = CFDataCreate(NULL, bytes, length);
     if (!data) return errSecAllocate;
     SecCertificateRef cert = SecCertificateCreateWithData(NULL, data);
@@ -34,7 +34,7 @@ static OSStatus sim_add_trust(const UInt8 *bytes, CFIndex length) {
     return status;
 }
 
-static OSStatus sim_remove_trust(const UInt8 *bytes, CFIndex length) {
+static OSStatus remove_trust(const UInt8 *bytes, CFIndex length) {
     CFDataRef data = CFDataCreate(NULL, bytes, length);
     SecCertificateRef cert = data ? SecCertificateCreateWithData(NULL, data) : NULL;
     if (data) CFRelease(data);
@@ -78,7 +78,7 @@ func installMacOSTrust(path string) error {
 	if err != nil {
 		return err
 	}
-	if status := C.sim_add_trust((*C.UInt8)(unsafe.Pointer(&b[0])), C.CFIndex(len(b))); status != 0 {
+	if status := C.add_trust((*C.UInt8)(unsafe.Pointer(&b[0])), C.CFIndex(len(b))); status != 0 {
 		return fmt.Errorf("install macOS user Keychain trust: %d", status)
 	}
 	return nil
@@ -92,7 +92,7 @@ func removeMacOSTrust(path string) error {
 	if err != nil {
 		return err
 	}
-	if status := C.sim_remove_trust((*C.UInt8)(unsafe.Pointer(&b[0])), C.CFIndex(len(b))); status != 0 {
+	if status := C.remove_trust((*C.UInt8)(unsafe.Pointer(&b[0])), C.CFIndex(len(b))); status != 0 {
 		return fmt.Errorf("remove macOS user Keychain trust: %d", status)
 	}
 	return nil

@@ -46,6 +46,24 @@ Untuk `serve production`, flag `--queue` bersifat otoritatif saat diisi:
 
 ## Migrasi sekali-jalan dari simpskba
 
-Instalasi simpskba lama di mesin dev perlu dibersihkan manual **satu kali**:
-`caddy untrust`, hapus entry hosts bertanda `# simpskba-managed`, hapus
-`~/.local/share/simpskba`. Detail: `dec:product-scope-avior`.
+Instalasi simpskba lama di mesin dev perlu dibersihkan manual **satu kali**
+sebelum memakai avior:
+
+1. **Untrust CA lama** — hapus sertifikat root bernama `SIM-PSKBA Local CA`
+   dari trust store user:
+   - macOS: hapus dari login Keychain (Keychain Access → System → Certificates,
+     atau `security delete-certificate -c "SIM-PSKBA Local CA" ~/Library/Keychains/login.keychain-db`).
+   - Firefox/Chromium (NSS): `certutil -D -n "SIM-PSKBA Local CA" -d sql:<direktori-profil>`
+     (mekanisme sama yang dipakai avior, lihat `internal/trust`), lalu restart browser.
+   - Windows: hapus dari Certificate Manager user (Crypt32), container
+     "Trusted Root Certification Authorities".
+2. **Hosts** — hapus baris yang diakhiri komentar `# simpskba-managed`
+   dari file hosts OS.
+3. **State dir lama** — hapus `~/.local/share/simpskba` (berisi manifest
+   Caddy & sertifikat bekas).
+4. **Staging Caddy bekas** — hapus direktori `tools/simpskba/` di project
+   jika ada (layout staging lama `tools/<nama>/bin`).
+
+Identitas avior yang baru: CA `Avior Local CA`, marker hosts
+`# avior-managed`, state dir `~/.local/share/avior` (lihat `internal/brand`).
+Latar keputusan: `dec:product-scope-avior`.
