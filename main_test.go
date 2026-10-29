@@ -13,6 +13,61 @@ import (
 	"github.com/maleolabs/avior/internal/state"
 )
 
+func TestDiagnosticJSONFailureAndSuccess(t *testing.T) {
+	root := t.TempDir()
+	var out bytes.Buffer
+	err := run([]string{"verify", "production", "--json", root}, &out)
+	if err == nil {
+		t.Fatal("verify accepted missing requirements")
+	}
+	var failed struct {
+		OK bool `json:"ok"`
+	}
+	if json.Unmarshal(out.Bytes(), &failed) != nil || failed.OK {
+		t.Fatalf("failure JSON = %q", out.String())
+	}
+	for _, name := range []string{"artisan", "composer.json", ".env.example", "vendor/autoload.php", "public/build/manifest.json"} {
+		path := filepath.Join(root, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(""), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bin := t.TempDir()
+	for name, script := range map[string]string{"composer": "#!/bin/sh\necho Composer 2\n", "php": "#!/bin/sh\necho PHP 8\n", "mysql": "#!/bin/sh\necho MySQL 8\n"} {
+		path := filepath.Join(bin, name)
+		if err := os.WriteFile(path, []byte(script), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", bin)
+	out.Reset()
+	if err := run([]string{"verify", "production", "--json", root}, &out); err != nil {
+		t.Fatal(err)
+	}
+	var passed struct {
+		OK bool `json:"ok"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &passed); err != nil || !passed.OK {
+		t.Fatalf("success JSON = %q, err=%v", out.String(), err)
+	}
+}
+
+func TestDiagnosticJSONFalseOnCLIErrors(t *testing.T) {
+	for _, args := range [][]string{{"verify", "--json", "--json"}, {"verify", "--json", "--bad"}, {"verify", "--json", "/path/that/does/not/exist"}} {
+		var out bytes.Buffer
+		if err := run(args, &out); err == nil {
+			t.Errorf("run(%v) succeeded", args)
+			continue
+		}
+		if out.Len() != 0 {
+			t.Errorf("run(%v) wrote JSON on argument/path failure: %q", args, out.String())
+		}
+	}
+}
+
 func TestMonitorAndProjectScopedCommands(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	a, b := filepath.Join(t.TempDir(), "project-a"), filepath.Join(t.TempDir(), "project-b")
