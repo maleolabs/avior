@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/maleolabs/avior/internal/brand"
 	"github.com/maleolabs/avior/internal/env"
 	"github.com/maleolabs/avior/internal/mode"
 )
@@ -115,6 +116,62 @@ func TestPipelineComposition(t *testing.T) {
 		if !contains(dev, name) || !contains(prod, name) {
 			t.Fatalf("step %s harus ada di kedua mode", name)
 		}
+	}
+}
+
+func TestManifestOptInSkipStepsAndCustomStep(t *testing.T) {
+	root := fixture(t, devEnv)
+	manifest := `{"setup":{"skip":["deps:js"],"steps":[{"name":"project:prepare","run":"php","args":["artisan","project:prepare"]}]}}`
+	if err := os.WriteFile(filepath.Join(root, brand.ManifestFile), []byte(manifest), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	runner := &fakeRunner{}
+	err := Run(Options{Root: root, Mode: mode.ModeDevelopment, Yes: true, In: strings.NewReader(""), Out: &out, ReadEnv: env.ReadFile, Runner: runner})
+	if err != nil {
+		t.Fatalf("Run: %v\n%s", err, out.String())
+	}
+	got := strings.Join(runner.commands(), "|")
+	if strings.Contains(got, "npm install") || !strings.Contains(got, "php artisan project:prepare") {
+		t.Fatalf("commands: %s", got)
+	}
+}
+
+func TestManifestRejectsUnknownFieldsAndKeys(t *testing.T) {
+	for _, body := range []string{`{"bogus":true}`, `{"setup":{"skip":["artisan"]}}`, `{"setup":{"steps":[{"name":"unsafe","run":"/bin/sh"}]}}`} {
+		root := fixture(t, devEnv)
+		if err := os.WriteFile(filepath.Join(root, brand.ManifestFile), []byte(body), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := readManifest(root); err == nil {
+			t.Errorf("readManifest(%s) succeeded", body)
+		}
+	}
+}
+
+func TestManifestEnvRequired(t *testing.T) {
+	root := fixture(t, devEnv)
+	var out bytes.Buffer
+	err := Run(Options{Root: root, Mode: mode.ModeDevelopment, Yes: true, In: strings.NewReader(""), Out: &out, ReadEnv: env.ReadFile, Runner: &fakeRunner{}, Manifest: Manifest{EnvRequired: []string{"APP_URL"}}})
+	if err == nil || !strings.Contains(err.Error(), "APP_URL wajib diisi") {
+		t.Fatalf("error: %v", err)
+	}
+}
+
+func TestProductionBuildManifestIsOptionalByDefault(t *testing.T) {
+	root := fixture(t, "APP_KEY=base64:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa=\nAPP_ENV=production\nAPP_DEBUG=false\nDB_CONNECTION=sqlite\n", "vendor/autoload.php")
+	if err := (&run{o: Options{Root: root, Mode: mode.ModeProduction}}).preflight(); err != nil {
+		t.Fatalf("preflight without build manifest: %v", err)
+	}
+	if err := (&run{o: Options{Root: root, Mode: mode.ModeProduction, Manifest: Manifest{EnvRequired: []string{"public/build/manifest.json"}}}}).preflight(); err == nil {
+		t.Fatal("expected declared build manifest requirement")
+	}
+}
+
+func TestMergeManifestExplicitOverridesFile(t *testing.T) {
+	merged := mergeManifest(Manifest{Setup: ManifestSetup{Skip: []string{"deps:js"}}}, Manifest{Setup: ManifestSetup{Skip: []string{"deps:php"}}})
+	if len(merged.Setup.Skip) != 1 || merged.Setup.Skip[0] != "deps:php" {
+		t.Fatalf("merged skip = %v", merged.Setup.Skip)
 	}
 }
 
@@ -297,7 +354,7 @@ func TestMultipleDbPromptsFromOneReader(t *testing.T) {
 	root := fixture(t,
 		"APP_KEY=base64:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa=\n"+
 			"APP_ENV=development\nDB_CONNECTION=mysql\n"+
-		"")
+			"")
 	var out bytes.Buffer
 	runner := &fakeRunner{}
 	err := Run(Options{
