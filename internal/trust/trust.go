@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/maleolabs/avior/internal/brand"
@@ -61,6 +62,7 @@ const (
 	TrustTargetInstalled TrustTargetStatus = "installed"
 	TrustTargetSkipped   TrustTargetStatus = "skipped"
 	TrustTargetFailed    TrustTargetStatus = "failed"
+	TrustTargetRemoved   TrustTargetStatus = "removed"
 )
 
 // TrustTargetResult adalah hasil untuk satu target. Error sengaja string agar
@@ -245,8 +247,6 @@ func firefoxCertutilArgs(profile, root string) []string {
 	return []string{"-A", "-n", brand.CANickname, "-t", "C,,", "-i", root, "-d", "sql:" + profile}
 }
 
-func chromiumNSSPath(home string) string { return filepath.Join(home, ".pki", "nssdb") }
-
 func chromiumNSSPaths(home string, stat func(string) (os.FileInfo, error)) []string {
 	candidates := []string{filepath.Join(home, ".pki", "nssdb"), filepath.Join(home, ".local", "share", "pki", "nssdb")}
 	var existing []string
@@ -363,42 +363,94 @@ func (m *TrustManager) StatusDetailed() TrustStatus {
 	return status
 }
 
-func (m *TrustManager) RemoveTargets() error {
-	root := m.root()
-	var errs []string
-	if runtime.GOOS == "windows" {
-		if err := removeWindowsTrust(root); err != nil {
-			errs = append(errs, err.Error())
+// removeTempConfig menulis config Caddyfile minimal yang hanya memuat
+// storage block, agar `caddy untrust` menemukan CA di storage tool ini.
+// File temp dihapus caller.
+func (m *TrustManager) removeTempConfig() (string, error) {
+	f, err := os.CreateTemp("", brand.Name+"-untrust-")
+	if err != nil {
+		return "", err
+	}
+	// caddyfileString ada di internal/proxy; di sini cukup strconv.Quote
+	// (semantik sama: string literal Caddyfile, tanpa shell).
+	config := fmt.Sprintf("{\n\tstorage file_system %s\n}\n", strconv.Quote(m.storage))
+	if _, err := f.WriteString(config); err != nil {
+		f.Close()
+		return "", err
+	}
+	if err := f.Close(); err != nil {
+		return "", err
+	}
+	return f.Name(), nil
+}
+
+// untrustCaddy membalik instalasi CA Caddy yang otoritatif (review H7):
+// tanpa ini, `caddy untrust` tidak pernah dijalankan dan CA tetap trusted di
+// system store setelah remove. Best-effort: kegagalan dilaporkan sebagai
+// hasil target, bukan panic.
+func (m *TrustManager) untrustCaddy() error {
+	config, err := m.removeTempConfig()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.Remove(config) }()
+	c := exec.Command(m.binary, "untrust", "--config", config, "--adapter", "caddyfile")
+	var diagnostics strings.Builder
+	c.Stdout, c.Stderr = &diagnostics, &diagnostics
+	if err := c.Run(); err != nil {
+		message := strings.TrimSpace(diagnostics.String())
+		if message != "" {
+			return fmt.Errorf("%w: %s", err, message)
 		}
+		return err
+	}
+	return nil
+}
+
+// RemoveTargets membalik seluruh instalasi trust per target (review H7):
+// untrust CA Caddy di system store, semua DB NSS Chromium yang ada (bukan
+// satu path), semua profil Firefox, store platform-specific, lalu metadata.
+// Signature per-target: pemanggil bisa melapor mana target yang gagal
+// tanpa kehilangan keberhasilan target lain.
+func (m *TrustManager) RemoveTargets() []TrustTargetResult {
+	var results []TrustTargetResult
+	report := func(target TrustTarget, err error) {
+		if err != nil {
+			results = append(results, TrustTargetResult{Target: target, Status: TrustTargetFailed, Error: err.Error()})
+			return
+		}
+		results = append(results, TrustTargetResult{Target: target, Status: TrustTargetRemoved})
+	}
+	// CA Caddy adalah target otoritatif: kegagalan untrust tetap dilaporkan
+	// tetapi tidak menghentikan pembersihan target lain.
+	report(TrustTargetCaddy, m.untrustCaddy())
+	if runtime.GOOS == "windows" {
+		report(TrustTargetWindowsRoot, removeWindowsTrust(m.root()))
 	}
 	if runtime.GOOS == "darwin" {
-		if err := removeMacOSTrust(root); err != nil {
-			errs = append(errs, err.Error())
-		}
+		report(TrustTargetMacOSKeychain, removeMacOSTrust(m.root()))
 	}
 	if runtime.GOOS == "linux" {
 		if home, err := os.UserHomeDir(); err == nil {
 			if certutil, e := bundledCertutil(maybeCLIPath(), m.resourceRoot); e == nil {
-				db := chromiumNSSPath(home)
-				// Nickname NSS scoped ke tool ini; hapus hanya entri itu.
-				_ = exec.Command(certutil, "-D", "-n", brand.CANickname, "-d", "sql:"+db).Run()
+				// Semua kandidat DB NSS Chromium yang ada — bukan satu path
+				// (review H7: .pki/nssdb dan .local/share/pki/nssdb). Delete
+				// per nickname best-effort; satu laporan untuk target.
+				for _, db := range chromiumNSSPaths(home, os.Stat) {
+					_ = exec.Command(certutil, "-D", "-n", brand.CANickname, "-d", "sql:"+db).Run() //nolint:gosec -- certutil dari resource terverifikasi
+				}
+				report(TrustTargetChromiumNSS, nil)
 			}
 			for _, profile := range firefoxProfilePaths(home, os.ReadFile) {
 				if certutil, e := bundledCertutil(maybeCLIPath(), m.resourceRoot); e == nil {
-					_ = exec.Command(certutil, "-D", "-n", brand.CANickname, "-d", "sql:"+profile).Run()
+					_ = exec.Command(certutil, "-D", "-n", brand.CANickname, "-d", "sql:"+profile).Run() //nolint:gosec -- idem
+					report(TrustTargetFirefox, nil)
 				}
 			}
 		}
 	}
 	if err := os.Remove(m.metadata); err != nil && !os.IsNotExist(err) {
-		errs = append(errs, err.Error())
+		report(TrustTargetCaddy, fmt.Errorf("hapus metadata trust: %w", err))
 	}
-	if len(errs) > 0 {
-		return fmt.Errorf("hapus trust gagal: %s", strings.Join(errs, "; "))
-	}
-	return nil
-}
-
-func (m *TrustManager) Remove() error {
-	return m.RemoveTargets()
+	return results
 }

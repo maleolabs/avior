@@ -2,6 +2,7 @@ package trust
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -46,13 +47,30 @@ func TestFirefoxCertutilArgsAreStableAndIdempotent(t *testing.T) {
 	}
 }
 
-func TestChromiumNSSPathAndCertutilArgs(t *testing.T) {
-	if got, want := chromiumNSSPath("/home/test"), "/home/test/.pki/nssdb"; got != want {
+func TestChromiumNSSPathsAndCertutilArgs(t *testing.T) {
+	// Path tunggal diganti chromiumNSSPaths (review H7): kandidat ganda,
+	// yang ada saja; kosong → fallback kandidat pertama.
+	if got, want := chromiumNSSPaths("/home/test", func(string) (os.FileInfo, error) { return nil, os.ErrNotExist })[0], "/home/test/.pki/nssdb"; got != want {
 		t.Fatalf("NSS path = %q, want %q", got, want)
 	}
 	want := []string{"-A", "-n", brand.CANickname, "-t", "C,,", "-i", "/tmp/root.crt", "-d", "sql:/home/test/.pki/nssdb"}
 	got := chromiumNSSCertutilArgs("/home/test/.pki/nssdb", "/tmp/root.crt")
 	if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
 		t.Fatalf("args = %#v, want %#v", got, want)
+	}
+}
+
+func TestChromiumNSSPathsPrefersExistingDatabases(t *testing.T) {
+	home := t.TempDir()
+	existing := filepath.Join(home, ".local", "share", "pki", "nssdb")
+	if err := os.MkdirAll(existing, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(existing, "cert9.db"), []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	got := chromiumNSSPaths(home, os.Stat)
+	if len(got) != 1 || got[0] != existing {
+		t.Fatalf("paths = %#v, want hanya %q", got, existing)
 	}
 }

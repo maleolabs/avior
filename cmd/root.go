@@ -162,7 +162,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&flagRoot, "root", "", "root proyek Laravel (default: direktori saat ini)")
 	rootCmd.PersistentFlags().BoolVar(&flagDryRun, "dry-run", false, "tampilkan aksi tanpa menjalankan")
 	rootCmd.PersistentFlags().BoolVarP(&flagYes, "yes", "y", false, "non-interactive, setujui semua konfirmasi")
-	rootCmd.AddCommand(doctorCmd, verifyCmd, monitorCmd, attachCmd, stopCmd, setupCmd, serveCmd, archiveCmd)
+	rootCmd.AddCommand(doctorCmd, verifyCmd, monitorCmd, attachCmd, stopCmd, setupCmd, serveCmd, archiveCmd, trustCmd)
 }
 
 // isTTY mendeteksi file karakter (terminal interaktif). Stdlib saja.
@@ -173,7 +173,7 @@ func isTTY(f *os.File) bool {
 
 // RunIn seperti Run dengan stdin di-inject (testability: non-TTY paths).
 func RunIn(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
-	flagRoot, flagDryRun, flagYes = "", false, false
+	flagRoot, flagDryRun, flagYes, trustJSON = "", false, false, false
 	doctorJSON, verifyJSON = jsonOnceFlag{}, jsonOnceFlag{}
 	rootCmd.SetIn(stdin)
 	rootCmd.SetOut(stdout)
