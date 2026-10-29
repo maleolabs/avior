@@ -7,7 +7,7 @@ import (
 
 // Brand contract (ADR: adr:brand-contract) — satu-satunya sumber identitas
 // tool. Dilarang menulis literal nama tool di luar paket ini; dijaga oleh
-// test grep pada internal/brand/brand_test.go.
+// test grep pada internal/brand/contract_test.go.
 
 const (
 	// Name adalah nama CLI (binary, help, output user-facing).

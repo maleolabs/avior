@@ -17,6 +17,9 @@ func TestContractValues(t *testing.T) {
 	if CANickname != "Avior Local CA" {
 		t.Fatalf("CANickname = %q, want %q", CANickname, "Avior Local CA")
 	}
+	if ModulePath != "github.com/maleolabs/avior" {
+		t.Fatalf("ModulePath = %q, want %q", ModulePath, "github.com/maleolabs/avior")
+	}
 	if got := ArchivePrefix(); got != "avior-" {
 		t.Fatalf("ArchivePrefix() = %q, want avior-", got)
 	}
