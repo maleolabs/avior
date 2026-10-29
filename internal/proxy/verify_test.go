@@ -199,6 +199,10 @@ func TestVerifyPATHOnlyInVerify(t *testing.T) {
 		// unduhan lewat gate dev (bukan managed) — disengaja, lihat
 		// sto:p2-e2e-smoke.
 		filepath.Join("e2e", "e2e_test.go"): true,
+		// internal/runtime/serve.go: gate dev untuk child `caddy run`
+		// (non-privileged) di serve; jalur privileged (`caddy trust`) tetap
+		// wajib VerifyManaged — review M-1.
+		filepath.Join("internal", "runtime", "serve.go"): true,
 	}
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
