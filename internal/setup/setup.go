@@ -68,7 +68,7 @@ type run struct {
 func Pipeline(m mode.Mode) []Step {
 	steps := []Step{
 		{Name: "doctor", Desc: "Pemeriksaan awal: prerequisite proyek dan tool", Run: (*run).doctor},
-		{Name: "env", Desc: "Bootstrap .env dari .env.example + baca environment (single-pass)", Mutating: true, Run: (*run).envBootstrap},
+		{Name: "env", Desc: "Bootstrap .env dari .env.example + baca environment (single-pass)", Run: (*run).envBootstrap},
 	}
 	if m == mode.ModeProduction {
 		steps = append(steps, Step{Name: "env:production-flags", Desc: "Set APP_ENV=production, APP_DEBUG=false", Mutating: true, Run: (*run).enforceProductionEnv})
@@ -114,6 +114,15 @@ func Pipeline(m mode.Mode) []Step {
 func Run(o Options) error {
 	if o.Out == nil || o.In == nil || o.ReadEnv == nil || o.Runner == nil {
 		return fmt.Errorf("setup: Options.Out/In/ReadEnv/Runner wajib diisi")
+	}
+	if o.Mode != mode.ModeDevelopment && o.Mode != mode.ModeProduction {
+		return fmt.Errorf("mode harus development atau production")
+	}
+	// Bungkus In ke satu bufio.Reader di level run agar semua prompt berbagi
+	// buffer — bufio per-prompt menyerap seluruh pipe dan membuang jawaban
+	// prompt berikutnya.
+	if _, ok := o.In.(*bufio.Reader); !ok {
+		o.In = bufio.NewReader(o.In)
 	}
 	r := &run{o: o}
 	steps := Pipeline(o.Mode)
@@ -204,7 +213,9 @@ func (r *run) doctor() error {
 func (r *run) envBootstrap() error {
 	envPath := filepath.Join(r.o.Root, ".env")
 	if _, err := os.Stat(envPath); os.IsNotExist(err) {
-		if !r.o.Dry {
+		if r.o.Dry {
+			fmt.Fprintln(r.o.Out, "        └─ [dry-run] .env akan dibuat dari .env.example")
+		} else {
 			if !r.confirm("Buat .env dari .env.example?") {
 				return fmt.Errorf("setup dibatalkan")
 			}
@@ -432,11 +443,20 @@ func (r *run) promptSecret(key, label string) error {
 	return nil
 }
 
-// validateEnv selalu tampil di pipeline; saat dry-run ia mencetak daftar
-// pemeriksaan tanpa menegakkan (fresh project belum punya .env untuk divalidasi).
+// validateEnv selalu tampil di pipeline. Saat dry-run dengan .env terbaca,
+// validasi dijalankan sungguhan (read-only) dan hasilnya dicetak; tanpa .env
+// (proyek fresh) cukup checklist statis karena tidak ada yang bisa divalidasi.
 func (r *run) validateEnv() error {
 	if r.o.Dry {
-		fmt.Fprintln(r.o.Out, "        └─ validasi: APP_KEY, APP_ENV, DB_CONNECTION wajib; production: APP_ENV=production & APP_DEBUG=false; DB non-sqlite: DB_HOST, DB_DATABASE, DB_USERNAME")
+		if r.values == nil {
+			fmt.Fprintln(r.o.Out, "        └─ validasi (checklist): APP_KEY, APP_ENV, DB_CONNECTION wajib; production: APP_ENV=production & APP_DEBUG=false; DB non-sqlite: DB_HOST, DB_DATABASE, DB_USERNAME")
+			return nil
+		}
+		if err := env.Validate(r.values, r.o.Mode); err != nil {
+			fmt.Fprintf(r.o.Out, "        └─ validasi: GAGAL — %v\n", err)
+			return nil
+		}
+		fmt.Fprintln(r.o.Out, "        └─ validasi: OK")
 		return nil
 	}
 	if err := env.Validate(r.values, r.o.Mode); err != nil {

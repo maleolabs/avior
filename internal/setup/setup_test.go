@@ -288,3 +288,83 @@ func TestNonInteractiveRequiresPresetPassword(t *testing.T) {
 		t.Fatalf("err = %v, want fail-closed INITIAL_SUPERADMIN_PASSWORD", err)
 	}
 }
+
+// TestMultipleDbPromptsFromOneReader menjaga fix review MAJOR: empat prompt
+// berurutan (DB host, name, user, password) dari SATU strings.Reader — semua
+// jawaban harus terbaca. Tanpa fix (bufio per-prompt), prompt pertama
+// menyerap seluruh pipe dan prompt kedua dapat EOF.
+func TestMultipleDbPromptsFromOneReader(t *testing.T) {
+	root := fixture(t,
+		"APP_KEY=base64:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa=\n"+
+			"APP_ENV=development\nDB_CONNECTION=mysql\n"+
+			"INITIAL_SUPERADMIN_PASSWORD=supersecret-panjang-12\n")
+	var out bytes.Buffer
+	runner := &fakeRunner{}
+	err := Run(Options{
+		Root: root, Mode: mode.ModeDevelopment,
+		In:  strings.NewReader("127.0.0.1\nappdb\nappuser\nsecret\n"),
+		Out: &out, ReadEnv: env.ReadFile, Runner: runner,
+	})
+	if err != nil {
+		t.Fatalf("run: %v\nout:\n%s", err, out.String())
+	}
+	values, err := env.ReadFile(filepath.Join(root, ".env"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for key, want := range map[string]string{
+		"DB_HOST": "127.0.0.1", "DB_DATABASE": "appdb", "DB_USERNAME": "appuser", "DB_PASSWORD": "secret",
+	} {
+		if values[key] != want {
+			t.Errorf("%s = %q, want %q (prompt ke-2+ kehilangan input?)", key, values[key], want)
+		}
+	}
+}
+
+func TestRunRejectsInvalidMode(t *testing.T) {
+	root := fixture(t, devEnv)
+	var out bytes.Buffer
+	err := Run(Options{
+		Root: root, Mode: mode.Mode("staging"),
+		In: strings.NewReader(""), Out: &out,
+		ReadEnv: env.ReadFile, Runner: &fakeRunner{},
+	})
+	if err == nil || err.Error() != "mode harus development atau production" {
+		t.Fatalf("err = %v, want guard mode eksplisit", err)
+	}
+	if len(out.String()) > 0 {
+		t.Error("mode tidak valid tidak boleh menghasilkan output pipeline")
+	}
+}
+
+func TestDryRunValidatesLoadedEnvForReal(t *testing.T) {
+	// .env valid terbaca → dry-run menjalankan env.Validate sungguhan: OK.
+	root := fixture(t, devEnv)
+	var out bytes.Buffer
+	err := Run(Options{
+		Root: root, Mode: mode.ModeDevelopment, Dry: true,
+		In: strings.NewReader(""), Out: &out,
+		ReadEnv: env.ReadFile, Runner: &fakeRunner{},
+	})
+	if err != nil {
+		t.Fatalf("dry run: %v\nout:\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "validasi: OK") {
+		t.Errorf("dry-run dengan .env valid harus mencetak 'validasi: OK'\nout:\n%s", out.String())
+	}
+
+	// .env rusak → dry-run mencetak GAGAL (read-only, tidak abort pipeline).
+	badRoot := fixture(t, "APP_ENV=development\n") // APP_KEY & DB_CONNECTION kosong
+	out.Reset()
+	err = Run(Options{
+		Root: badRoot, Mode: mode.ModeDevelopment, Dry: true,
+		In: strings.NewReader(""), Out: &out,
+		ReadEnv: env.ReadFile, Runner: &fakeRunner{},
+	})
+	if err != nil {
+		t.Fatalf("dry run (env rusak) tidak boleh gagal: %v\nout:\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "validasi: GAGAL") || !strings.Contains(out.String(), "APP_KEY wajib diisi") {
+		t.Errorf("dry-run dengan .env rusak harus mencetak 'validasi: GAGAL — APP_KEY wajib diisi'\nout:\n%s", out.String())
+	}
+}
