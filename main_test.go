@@ -69,8 +69,8 @@ func TestDoctorVerifyCLI(t *testing.T) {
 		for _, args := range [][]string{{command}, {command, "production"}, {command, "--json"}, {command, "development", root}} {
 			var out bytes.Buffer
 			err := run(args, &out)
-			if command == "doctor" && err == nil {
-				t.Fatal("doctor unexpectedly passed empty project")
+			if err == nil {
+				t.Errorf("%v unexpectedly passed missing prerequisites", args)
 			}
 			if args[len(args)-1] == "--json" {
 				var report map[string]any
@@ -78,6 +78,14 @@ func TestDoctorVerifyCLI(t *testing.T) {
 					t.Fatalf("%v output not JSON: %q (%v)", args, out.String(), decodeErr)
 				}
 			}
+		}
+	}
+	for _, args := range [][]string{
+		{"verify"}, {"verify", "production"}, {"verify", root}, {"verify", "production", root},
+	} {
+		var out bytes.Buffer
+		if err := run(args, &out); err == nil {
+			t.Errorf("%v unexpectedly passed missing prerequisites", args)
 		}
 	}
 	for _, args := range [][]string{
