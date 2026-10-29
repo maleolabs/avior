@@ -1,0 +1,1 @@
+{"description":"Implementasi manifest opt-in (services override, setup.skip, setup.steps, env_required) dengan validasi actionable; fail-open tanpa file.","acceptanceCriteria":"Tool jalan normal tanpa manifest; manifest valid mengubah perilaku sesuai isi; error manifest actionable; test."}

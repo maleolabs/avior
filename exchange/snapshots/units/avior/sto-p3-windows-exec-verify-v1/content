@@ -1,0 +1,1 @@
+{"description":"Verifikasi npm/composer via .cmd di Windows dan fetch Caddy tanpa bash; perbaiki (LookPath .cmd atau cmd /c; fetch Caddy Go-native bila perlu).","acceptanceCriteria":"Setup + archive jalan di Windows tanpa bash; catatan verifikasi di note."}

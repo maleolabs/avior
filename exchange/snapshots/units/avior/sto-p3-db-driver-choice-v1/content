@@ -1,0 +1,1 @@
+{"description":"Setup menawarkan pilihan DB driver MySQL/MariaDB/Postgres/SQLite; prompt adaptif (SQLite tanpa host/user); env.Validate per driver.","acceptanceCriteria":"Keempat driver tersedia; prompt hanya menanyakan field yang relevan; test validasi per driver."}

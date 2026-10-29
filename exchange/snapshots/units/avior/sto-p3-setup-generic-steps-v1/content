@@ -1,0 +1,1 @@
+{"description":"Hapus asumsi SIM-PSKBA dari setup (INITIAL_SUPERADMIN_PASSWORD, seeder spesifik, .env.example khusus); project mengatur via manifest bila butuh.","acceptanceCriteria":"grep PSKBA/SUPERADMIN tidak ada di kode tool; setup project Laravel polos sukses tanpa config."}
