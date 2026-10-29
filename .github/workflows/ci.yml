@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go test ./...
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build cross-platform archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for target in linux/amd64 darwin/amd64 darwin/arm64 windows/amd64; do
+            GOOS=${target%/*} GOARCH=${target#*/} CGO_ENABLED=0 go build -o dist/avior-${target%/*}-${target#*/}$( [[ ${target%/*} == windows ]] && echo .exe ) .
+            name="avior-${GITHUB_REF_NAME}-${target%/*}-${target#*/}"
+            if [[ ${target%/*} == windows ]]; then
+              (cd dist && zip "${name}.zip" "avior-${target%/*}-${target#*/}.exe")
+            else
+              tar -C dist -czf "dist/${name}.tar.gz" "avior-${target%/*}-${target#*/}"
+            fi
+          done
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.tar.gz,dist/*.zip
