@@ -83,6 +83,10 @@ func Stop(project string) error {
 }
 
 func stop(project string, wait func(time.Duration)) error {
+	return stopWithHooks(project, wait, processgroup.StopManagedRuntime, processgroup.ProcessAlive, 7*time.Second)
+}
+
+func stopWithHooks(project string, wait func(time.Duration), stopManaged func(string, int) bool, alive func(state.Process) bool, timeout time.Duration) error {
 	statePath, registry, err := state.Paths(project)
 	if err != nil {
 		return err
@@ -104,20 +108,24 @@ func stop(project string, wait func(time.Duration)) error {
 	if st.MainPID.PID <= 0 {
 		return nil
 	}
-	if !processgroup.StopManagedRuntime(registry, st.MainPID.PID) {
-		if processgroup.ProcessAlive(st.MainPID) {
+	if !stopManaged(registry, st.MainPID.PID) {
+		if alive(st.MainPID) {
 			return fmt.Errorf("runtime: cannot safely stop project %s", project)
 		}
 		return state.RemoveStateIfOwner(statePath, st.MainPID)
 	}
-	if !waitForExit(st.MainPID, wait, processgroup.ProcessAlive) {
+	if !waitForExitTimeout(st.MainPID, wait, alive, timeout) {
 		return fmt.Errorf("runtime: project %s still running after stop timeout", project)
 	}
 	return state.RemoveStateIfOwner(statePath, st.MainPID)
 }
 
 func waitForExit(pid state.Process, wait func(time.Duration), alive func(state.Process) bool) bool {
-	deadline := time.Now().Add(7 * time.Second)
+	return waitForExitTimeout(pid, wait, alive, 7*time.Second)
+}
+
+func waitForExitTimeout(pid state.Process, wait func(time.Duration), alive func(state.Process) bool, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) && alive(pid) {
 		wait(25 * time.Millisecond)
 	}
