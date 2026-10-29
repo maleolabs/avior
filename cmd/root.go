@@ -142,7 +142,7 @@ var rootCmd = &cobra.Command{
 }
 
 // rootless berisi command yang tidak memvalidasi --root.
-var rootless = map[string]bool{"monitor": true}
+var rootless = map[string]bool{"monitor": true, "verify-release": true}
 
 func init() {
 	rootCmd.SetHelpTemplate(helpTemplate)
@@ -162,7 +162,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&flagRoot, "root", "", "root proyek Laravel (default: direktori saat ini)")
 	rootCmd.PersistentFlags().BoolVar(&flagDryRun, "dry-run", false, "tampilkan aksi tanpa menjalankan")
 	rootCmd.PersistentFlags().BoolVarP(&flagYes, "yes", "y", false, "non-interactive, setujui semua konfirmasi")
-	rootCmd.AddCommand(doctorCmd, verifyCmd, monitorCmd, attachCmd, stopCmd, setupCmd, serveCmd, archiveCmd, trustCmd)
+	rootCmd.AddCommand(doctorCmd, verifyCmd, monitorCmd, attachCmd, stopCmd, setupCmd, serveCmd, archiveCmd, trustCmd, verifyReleaseCmd)
 }
 
 // isTTY mendeteksi file karakter (terminal interaktif). Stdlib saja.

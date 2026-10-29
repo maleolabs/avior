@@ -38,6 +38,28 @@ go test ./...
 go test -race ./...
 ```
 
+## Checksum distribusi
+
+Setiap rilis menyertakan `SHA256SUMS` berisi checksum seluruh arsip
+(`.tar.gz`/`.zip`). Verifikasi direktori hasil unduhan:
+
+```sh
+avior verify-release <direktori-rilis>
+```
+
+Perintah ini fail-closed: entri manifest yang hilang, digest yang tidak
+cocok, dan file ekstra di luar manifest semuanya gagal.
+
+**Batas yang jujur:** checksum ini unsigned — ia membuktikan **integritas**
+(artefak utuh dan konsisten dengan manifestnya), **bukan autentisitas**
+(bukti siapa penerbitnya). Ia bukan pengganti tanda tangan digital.
+
+Binary Caddy yang dibundel arsip rilis (atau diunduh otomatis pada jalur
+`go install`) diverifikasi terhadap pin checksum yang tertanam di binary
+CLI saat build (`internal/proxy/pins.go`); manifest lokal di StateDir hanya
+ditulis setelah checksum cocok — manifest adalah cache, bukan sumber
+kebenaran.
+
 ## Migrasi dari instalasi tool sebelumnya
 
 Sudah pernah memasang tool pendahulu di mesin dev? Bersihkan sekali:

@@ -31,12 +31,13 @@ import (
 const CaddyVersion = "2.10.0"
 
 // Manifest adalah isi caddy-manifest.json di brand.StateDir(), ditulis
-// saat binary selesai di-download/terpasang (install time), bukan saat
-// verifikasi. Format minimal JSON tanpa signature — manifest dianggap
-// tepercaya karena ditulis oleh tool itu sendiri di user dir milik user.
-// ponytail: belum ada signature verification (attacker dengan akses tulis
-// ke StateDir bisa menimpa manifest); upgrade path: tandatangani manifest
-// atau bandingkan checksum terhadap nilai tertanam saat build.
+// saat install (proxy.FetchCaddy) HANYA setelah hasil download cocok dengan
+// pin checksum build-time (Kontrak B, internal/proxy/pins.go) — manifest
+// adalah cache install-time, bukan root of trust. Format minimal JSON tanpa
+// signature: ditulis oleh tool itu sendiri di user dir milik user.
+// ponytail: manifest masih bisa ditimpa attacker dengan akses tulis ke
+// StateDir; mitigasi jalur install = pin build-time. Upgrade path bila
+// dibutuhkan: tandatangani manifest.
 type Manifest struct {
 	SHA256  string `json:"sha256"`
 	Version string `json:"version"` // tidak divalidasi di readManifest; checksum adalah binding

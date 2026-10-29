@@ -2,8 +2,12 @@ package proxy
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -19,16 +23,38 @@ import (
 )
 
 func TestCaddyArchivePlatformName(t *testing.T) {
-	if CaddyVersion == "" || stdruntime.GOOS == "" || stdruntime.GOARCH == "" {
-		t.Fatal("platform and pinned version required")
+	// Upstream menamai asset: darwin → "mac_", windows → ".zip".
+	wantOS := stdruntime.GOOS
+	if wantOS == "darwin" {
+		wantOS = "mac"
 	}
-	want := "https://github.com/caddyserver/caddy/releases/download/v" + CaddyVersion + "/caddy_" + CaddyVersion + "_" + stdruntime.GOOS + "_" + stdruntime.GOARCH + ".tar.gz"
+	wantExt := ".tar.gz"
+	if stdruntime.GOOS == "windows" {
+		wantExt = ".zip"
+	}
+	want := "https://github.com/caddyserver/caddy/releases/download/v" + CaddyVersion + "/caddy_" + CaddyVersion + "_" + wantOS + "_" + stdruntime.GOARCH + wantExt
 	if got := fetchArchiveURL(); got != want {
 		t.Fatalf("archive URL=%q want %q", got, want)
 	}
 }
 
 func TestFetchCaddyExtractsOnlyBinaryAndRejectsMissing(t *testing.T) {
+	// Isolasi manifest: FetchCaddy menulis manifest StateDir setelah pin
+	// cocok — arahkan StateDir ke temp agar home asli tidak tersentuh.
+	home := t.TempDir()
+	t.Setenv("HOME", home)        // Unix: os.UserHomeDir
+	t.Setenv("USERPROFILE", home) // Windows: os.UserHomeDir
+	// Pin test: sha256("data") — dibekukan agar verifikasi Kontrak B tetap
+	// dieksekusi di jalur sukses, bukan di-skip.
+	pin := sha256.Sum256([]byte("data"))
+	oldPin := pinOverride
+	pinOverride = func(_, _ string) (string, bool) { return hex.EncodeToString(pin[:]), true }
+	defer func() { pinOverride = oldPin }()
+
+	archiveName := "caddy"
+	if stdruntime.GOOS == "windows" {
+		archiveName += ".exe"
+	}
 	for _, tc := range []struct {
 		name    string
 		include bool
@@ -36,14 +62,21 @@ func TestFetchCaddyExtractsOnlyBinaryAndRejectsMissing(t *testing.T) {
 	}{{"caddy", true, false}, {"other", false, true}} {
 		t.Run(tc.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if stdruntime.GOOS == "windows" {
+					zw := zip.NewWriter(w)
+					if tc.include {
+						fw, _ := zw.Create(archiveName)
+						_, _ = fw.Write([]byte("data"))
+					}
+					_ = zw.Close()
+					return
+				}
 				gz := gzip.NewWriter(w)
 				tw := tar.NewWriter(gz)
-				name := tc.name
-				if name == "caddy" && stdruntime.GOOS == "windows" {
-					name += ".exe"
+				if tc.include {
+					_ = tw.WriteHeader(&tar.Header{Name: archiveName, Mode: 0755, Size: 4, Typeflag: tar.TypeReg})
+					_, _ = tw.Write([]byte("data"))
 				}
-				_ = tw.WriteHeader(&tar.Header{Name: name, Mode: 0755, Size: 4, Typeflag: tar.TypeReg})
-				_, _ = tw.Write([]byte("data"))
 				_ = tw.Close()
 				_ = gz.Close()
 			}))
@@ -56,13 +89,121 @@ func TestFetchCaddyExtractsOnlyBinaryAndRejectsMissing(t *testing.T) {
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("FetchCaddy err=%v", err)
 			}
-			if !tc.wantErr {
-				b, readErr := os.ReadFile(dest)
-				if readErr != nil || string(b) != "data" {
-					t.Fatalf("binary=%q err=%v", b, readErr)
+			if tc.wantErr {
+				// Fail-closed: binary yang tidak terverifikasi tidak boleh tersisa.
+				if _, statErr := os.Stat(dest); !os.IsNotExist(statErr) {
+					t.Fatalf("destination harus bersih setelah gagal, stat=%v", statErr)
 				}
+				return
+			}
+			b, readErr := os.ReadFile(dest)
+			if readErr != nil || string(b) != "data" {
+				t.Fatalf("binary=%q err=%v", b, readErr)
+			}
+			// Manifest hanya ditulis setelah pin cocok, dan isinya checksum
+			// binary yang baru terpasang (cache install-time, Kontrak B).
+			data, err := os.ReadFile(ManifestPath())
+			if err != nil {
+				t.Fatalf("manifest tidak ditulis setelah install: %v", err)
+			}
+			var m Manifest
+			if err := json.Unmarshal(data, &m); err != nil {
+				t.Fatalf("manifest rusak: %v", err)
+			}
+			if m.SHA256 != hex.EncodeToString(pin[:]) || m.Version != CaddyVersion {
+				t.Fatalf("manifest salah: %+v", m)
 			}
 		})
+	}
+}
+
+// Tanpa pin untuk pasangan OS/arch, FetchCaddy wajib menolak (fail-closed)
+// dan tidak menulis manifest — tidak ada fallback silent.
+func TestFetchCaddyFailsClosedWithoutPin(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	oldPin := pinOverride
+	pinOverride = func(_, _ string) (string, bool) { return "", false }
+	defer func() { pinOverride = oldPin }()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gz := gzip.NewWriter(w)
+		tw := tar.NewWriter(gz)
+		_ = tw.WriteHeader(&tar.Header{Name: "caddy", Mode: 0755, Size: 4, Typeflag: tar.TypeReg})
+		_, _ = tw.Write([]byte("data"))
+		_ = tw.Close()
+		_ = gz.Close()
+	}))
+	defer server.Close()
+	old := urlOverride
+	urlOverride = func() string { return server.URL }
+	defer func() { urlOverride = old }()
+	dest := filepath.Join(t.TempDir(), "caddy")
+	err := FetchCaddy(context.Background(), dest)
+	if err == nil {
+		t.Fatal("tanpa pin harus fail-closed")
+	}
+	if !strings.Contains(err.Error(), "fail-closed") {
+		t.Fatalf("pesan harus actionable: %v", err)
+	}
+	if _, statErr := os.Stat(dest); !os.IsNotExist(statErr) {
+		t.Fatal("destination harus bersih")
+	}
+	if _, statErr := os.Stat(ManifestPath()); !os.IsNotExist(statErr) {
+		t.Fatal("manifest tidak boleh ditulis tanpa pin")
+	}
+}
+
+// Checksum binary hasil download yang tidak cocok pin → ditolak, file
+// dihapus, manifest tidak ditulis (Kontrak B, hash-before-record).
+func TestFetchCaddyRejectsPinMismatch(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	oldPin := pinOverride
+	pinOverride = func(_, _ string) (string, bool) { return "deadbeef", true }
+	defer func() { pinOverride = oldPin }()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gz := gzip.NewWriter(w)
+		tw := tar.NewWriter(gz)
+		_ = tw.WriteHeader(&tar.Header{Name: "caddy", Mode: 0755, Size: 4, Typeflag: tar.TypeReg})
+		_, _ = tw.Write([]byte("data"))
+		_ = tw.Close()
+		_ = gz.Close()
+	}))
+	defer server.Close()
+	old := urlOverride
+	urlOverride = func() string { return server.URL }
+	defer func() { urlOverride = old }()
+	dest := filepath.Join(t.TempDir(), "caddy")
+	if err := FetchCaddy(context.Background(), dest); err == nil {
+		t.Fatal("pin mismatch harus ditolak")
+	}
+	if _, statErr := os.Stat(dest); !os.IsNotExist(statErr) {
+		t.Fatal("destination harus bersih setelah mismatch")
+	}
+	if _, statErr := os.Stat(ManifestPath()); !os.IsNotExist(statErr) {
+		t.Fatal("manifest tidak boleh ditulis saat pin mismatch")
+	}
+}
+
+// Tabel pin build-time harus diisi dan berformat sha256 hex 64 char untuk
+// seluruh target rilis; pin hilang = platform tersebut fail-closed saat
+// install (Kontrak B).
+func TestCaddyBinaryPinsCoverReleaseTargets(t *testing.T) {
+	for _, target := range [][2]string{
+		{"linux", "amd64"}, {"linux", "arm64"},
+		{"darwin", "amd64"}, {"darwin", "arm64"},
+		{"windows", "amd64"}, {"windows", "arm64"},
+	} {
+		pin, ok := CaddyBinaryPin(target[0], target[1])
+		if !ok {
+			t.Errorf("pin %s/%s hilang dari tabel build-time", target[0], target[1])
+			continue
+		}
+		if len(pin) != 64 {
+			t.Errorf("pin %s/%s bukan sha256 hex 64 char: %q", target[0], target[1], pin)
+		}
 	}
 }
 
