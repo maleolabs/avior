@@ -13,7 +13,8 @@ const (
 	// Name adalah nama CLI (binary, help, output user-facing).
 	Name = "avior"
 	// ModulePath adalah module Go; ditinjau ulang saat rename sweep (p2-rename-sweep).
-	ModulePath = "github.com/maleolabs/avior"
+	ModulePath   = "github.com/maleolabs/avior"
+	ManifestFile = Name + ".json"
 )
 
 // HostsMarker adalah komentar penanda pada /etc/hosts (Windows hosts) yang

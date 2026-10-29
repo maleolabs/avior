@@ -35,14 +35,15 @@ type EnvReader func(path string) (map[string]string, error)
 // ReadEnv dan Runner wajib diisi juga — setup tidak pernah membuka stdout atau
 // spawn proses sendiri.
 type Options struct {
-	Root    string
-	Mode    mode.Mode // peroleh dari mode.ParseMode, jangan validasi string sendiri
-	Dry     bool
-	Yes     bool
-	In      io.Reader
-	Out     io.Writer
-	ReadEnv EnvReader
-	Runner  Runner
+	Root     string
+	Mode     mode.Mode // peroleh dari mode.ParseMode, jangan validasi string sendiri
+	Dry      bool
+	Yes      bool
+	In       io.Reader
+	Out      io.Writer
+	ReadEnv  EnvReader
+	Runner   Runner
+	Manifest Manifest
 }
 
 // Step adalah satu tahap pipeline. Mutating=true berarti step mengubah
@@ -123,7 +124,12 @@ func Run(o Options) error {
 		o.In = bufio.NewReader(o.In)
 	}
 	r := &run{o: o}
-	steps := Pipeline(o.Mode)
+	manifest, err := readManifest(o.Root)
+	if err != nil {
+		return err
+	}
+	manifest = mergeManifest(manifest, o.Manifest)
+	steps := applyManifest(Pipeline(o.Mode), manifest)
 	fmt.Fprintf(o.Out, "\n╭─ %s SETUP\n", strings.ToUpper(brand.Name))
 	fmt.Fprintf(o.Out, "│  Mode: %s\n", o.Mode)
 	fmt.Fprintln(o.Out, "╰─")
@@ -133,11 +139,50 @@ func Run(o Options) error {
 			fmt.Fprintln(o.Out, "        └─ [dry-run] dilewati")
 			continue
 		}
+		if s.Run == nil {
+			continue
+		}
 		if err := s.Run(r); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func applyManifest(steps []Step, manifest Manifest) []Step {
+	skipped := make(map[string]bool, len(manifest.Setup.Skip))
+	for _, name := range manifest.Setup.Skip {
+		skipped[name] = true
+	}
+	out := make([]Step, 0, len(steps)+len(manifest.Setup.Steps))
+	for _, step := range steps {
+		if !skipped[step.Name] {
+			out = append(out, step)
+		}
+	}
+	for _, extra := range manifest.Setup.Steps {
+		cmd, args, name := extra.Run, extra.Args, extra.Name
+		out = append(out, Step{Name: name, Desc: cmd, Mutating: true, Run: func(r *run) error {
+			return runStep(r.o.Runner, "Running custom setup step "+name, cmd, args...)
+		}})
+	}
+	return out
+}
+
+func mergeManifest(file, explicit Manifest) Manifest {
+	if explicit.Services != nil {
+		file.Services = explicit.Services
+	}
+	if explicit.Setup.Skip != nil {
+		file.Setup.Skip = explicit.Setup.Skip
+	}
+	if explicit.Setup.Steps != nil {
+		file.Setup.Steps = explicit.Setup.Steps
+	}
+	if explicit.EnvRequired != nil {
+		file.EnvRequired = explicit.EnvRequired
+	}
+	return file
 }
 
 // runStep memakai RunLabel bila runner mendukungnya agar label progres tampil
@@ -183,6 +228,12 @@ func (r *run) doctor() error {
 	envPath := filepath.Join(r.o.Root, ".env")
 	_, envExists := os.Stat(envPath)
 	for _, item := range detect.ProjectMode(r.o.Root, r.o.Mode) {
+		if item.Name == "public/build/manifest.json" && !fileRequired(r.o.Manifest, item.Name) {
+			continue
+		}
+		if r.o.Mode == mode.ModeProduction && item.Name == "public/build/manifest.json" && !fileRequired(r.o.Manifest, "public/build/manifest.json") {
+			continue
+		}
 		mark := "✓"
 		if !item.OK {
 			mark = "!"
@@ -303,13 +354,31 @@ func (r *run) preflight() error {
 		}
 	}
 	if r.o.Mode == mode.ModeProduction {
-		for _, name := range []string{"vendor/autoload.php", "public/build/manifest.json"} {
+		required = append(required, "vendor/autoload.php")
+		if fileRequired(r.o.Manifest, "public/build/manifest.json") {
+			required = append(required, "public/build/manifest.json")
+		}
+		for _, name := range required[len(required)-1:] {
 			if err := regular(r.o.Root, name); err != nil {
+				return fmt.Errorf("production preflight: %w", err)
+			}
+		}
+		if fileRequired(r.o.Manifest, "public/build/manifest.json") {
+			if err := regular(r.o.Root, "public/build/manifest.json"); err != nil {
 				return fmt.Errorf("production preflight: %w", err)
 			}
 		}
 	}
 	return nil
+}
+
+func fileRequired(m Manifest, name string) bool {
+	for _, value := range m.EnvRequired {
+		if value == name {
+			return true
+		}
+	}
+	return false
 }
 
 // ensureRuntimeDirs membuat ulang direktori yang sering tidak ikut arsip
@@ -445,6 +514,16 @@ func (r *run) promptSecret(key, label string) error {
 // validasi dijalankan sungguhan (read-only) dan hasilnya dicetak; tanpa .env
 // (proyek fresh) cukup checklist statis karena tidak ada yang bisa divalidasi.
 func (r *run) validateEnv() error {
+	for _, key := range r.o.Manifest.EnvRequired {
+		if strings.TrimSpace(r.values[key]) == "" {
+			return fmt.Errorf("validasi .env: %s wajib diisi (manifest)", key)
+		}
+	}
+	for _, key := range r.o.Manifest.EnvRequired {
+		if strings.TrimSpace(r.values[key]) == "" {
+			return fmt.Errorf("validasi .env: %s wajib diisi (manifest)", key)
+		}
+	}
 	if r.o.Dry {
 		if r.values == nil {
 			fmt.Fprintln(r.o.Out, "        └─ validasi (checklist): APP_KEY, APP_ENV, DB_CONNECTION wajib; production: APP_ENV=production & APP_DEBUG=false; DB non-sqlite: DB_HOST, DB_DATABASE, DB_USERNAME")

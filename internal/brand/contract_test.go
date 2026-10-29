@@ -17,7 +17,8 @@ import (
 //     bukan identitas runtime.
 func stripSkipped(line string) string {
 	s := strings.ReplaceAll(line, `"github.com/maleolabs/avior`, "")
-	return strings.ReplaceAll(s, "arc:avior-architecture", "")
+	s = strings.ReplaceAll(s, "arc:avior-architecture", "")
+	return strings.ReplaceAll(s, "internal/brand.ManifestFile", "")
 }
 
 // isBrandLiteral melaporkan apakah baris (setelah strip) memuat literal brand.
