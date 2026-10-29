@@ -18,10 +18,12 @@ package runtime
 import (
 	"context"
 	"fmt"
+	"log"
 	"os/exec"
 	"time"
 
 	"github.com/maleolabs/avior/internal/processgroup"
+	"github.com/maleolabs/avior/internal/state"
 )
 
 // Service adalah satu child yang akan di-launch. Args murni args-list —
@@ -56,7 +58,28 @@ func PlanServices(o Options, evidence Plan) []Service {
 // semua). ctx.Done (Ctrl+C via signal.NotifyContext pemanggil) memicu teardown
 // graceful lalu nil.
 func Run(ctx context.Context, dir string, services []Service) error {
+	statePath, registryPath, err := state.Paths(dir)
+	if err != nil {
+		return err
+	}
+	if err := processgroup.CleanupStaleProcesses(registryPath); err != nil {
+		log.Printf("runtime: cleanup stale processes: %v", err)
+	}
 	supervised := make([]*processgroup.Supervised, 0, len(services))
+	var unregister []func() error
+	var stateOwner state.Process
+	defer func() {
+		for _, remove := range unregister {
+			if err := remove(); err != nil {
+				log.Printf("runtime: unregister process: %v", err)
+			}
+		}
+		if stateOwner.PID != 0 {
+			if err := state.RemoveStateIfOwner(statePath, stateOwner); err != nil {
+				log.Printf("runtime: remove state: %v", err)
+			}
+		}
+	}()
 	for _, s := range services {
 		cmd := exec.Command(s.Name, s.Args...) // args-list saja, tanpa shell
 		cmd.Dir = dir
@@ -66,6 +89,20 @@ func Run(ctx context.Context, dir string, services []Service) error {
 			return fmt.Errorf("runtime: start %s: %w", s.Name, err)
 		}
 		supervised = append(supervised, sup)
+		remove, err := processgroup.RegisterProcess(registryPath, cmd.String(), sup.PID())
+		if err != nil {
+			stopAll(supervised)
+			return fmt.Errorf("runtime: register %s: %w", s.Name, err)
+		}
+		unregister = append(unregister, remove)
+		if len(supervised) == 1 {
+			id := sup.Identity()
+			stateOwner = id
+			if err := state.SaveState(statePath, state.RuntimeState{ProjectRoot: dir, MainPID: id}); err != nil {
+				stopAll(supervised)
+				return fmt.Errorf("runtime: save state: %w", err)
+			}
+		}
 	}
 	// Supervise: multiplex exit SEMUA child + ctx.Done — child pertama yang
 	// exit mengakhiri runtime, siapa pun itu. Select sekuensial atas

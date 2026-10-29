@@ -33,36 +33,52 @@ type processRecord struct {
 }
 
 var registryMu sync.Mutex
+var chmodRegistryTemp = func(file *os.File, mode os.FileMode) error { return file.Chmod(mode) }
 
 // RegisterProcess mencatat child ke registry (path = file registry
 // per-proyek, mis. dari state.Paths) dan mengembalikan fungsi unregister.
 // Unregister hanya menghapus registration yang persis sama: matching
 // hanya-by-PID tidak aman saat OS memakai ulang PID sebelum deferred cleanup
 // berjalan.
-func RegisterProcess(path, cmd string, pid int) func() {
+func RegisterProcess(path, cmd string, pid int) (func() error, error) {
 	if path == "" {
-		return func() {}
+		return nil, os.ErrInvalid
 	}
 	registryMu.Lock()
 	defer registryMu.Unlock()
-	records, _ := readProcessRegistry(path)
+	unlock, err := lockRegistry(path)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	records, err := readProcessRegistry(path)
+	if err != nil {
+		return nil, err
+	}
 	exe, identity := processIdentity(pid)
 	ownerExe, ownerIdentity := processIdentity(os.Getpid())
 	record := processRecord{PID: pid, Command: cmd, Executable: exe, Identity: identity, CreatedAt: time.Now(), OwnerPID: os.Getpid(), OwnerExecutable: ownerExe, OwnerIdentity: ownerIdentity}
 	records = append(records, record)
-	_ = writeProcessRegistry(path, records)
-	return func() { unregisterProcess(path, record) }
+	if err := writeProcessRegistry(path, records); err != nil {
+		return nil, err
+	}
+	return func() error { return unregisterProcess(path, record) }, nil
 }
 
-func unregisterProcess(path string, record processRecord) {
+func unregisterProcess(path string, record processRecord) error {
 	if path == "" {
-		return
+		return os.ErrInvalid
 	}
 	registryMu.Lock()
 	defer registryMu.Unlock()
+	unlock, err := lockRegistry(path)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	records, err := readProcessRegistry(path)
 	if err != nil {
-		return
+		return err
 	}
 	kept := records[:0]
 	for _, r := range records {
@@ -71,10 +87,15 @@ func unregisterProcess(path string, record processRecord) {
 		}
 	}
 	if len(kept) == 0 {
-		_ = os.Remove(path)
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
 	} else {
-		_ = writeProcessRegistry(path, kept)
+		if err := writeProcessRegistry(path, kept); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 // StopManagedProcess hanya mengirim sinyal bila identitas proses yang
@@ -84,8 +105,14 @@ func StopManagedProcess(path string, pid int) bool {
 		return false
 	}
 	registryMu.Lock()
-	defer registryMu.Unlock()
+	unlock, err := lockRegistry(path)
+	if err != nil {
+		registryMu.Unlock()
+		return false
+	}
 	records, err := readProcessRegistry(path)
+	unlock()
+	registryMu.Unlock()
 	if err != nil {
 		return false
 	}
@@ -95,6 +122,7 @@ func StopManagedProcess(path string, pid int) bool {
 				return false
 			}
 			terminatePID(pid)
+			removeExactRecords(path, []processRecord{r})
 			return true
 		}
 	}
@@ -110,8 +138,14 @@ func StopManagedRuntime(path string, ownerPID int) bool {
 		return false
 	}
 	registryMu.Lock()
-	defer registryMu.Unlock()
+	unlock, err := lockRegistry(path)
+	if err != nil {
+		registryMu.Unlock()
+		return false
+	}
 	records, err := readProcessRegistry(path)
+	unlock()
+	registryMu.Unlock()
 	if err != nil {
 		return false
 	}
@@ -119,8 +153,9 @@ func StopManagedRuntime(path string, ownerPID int) bool {
 	if ownerExe == "" || ownerIdentity == "" {
 		return false
 	}
+	owned := recordsForOwner(records, ownerPID, ownerExe, ownerIdentity)
 	matched := false
-	for _, r := range recordsForOwner(records, ownerPID, ownerExe, ownerIdentity) {
+	for _, r := range owned {
 		if !recordMatchesProcess(r) {
 			continue
 		}
@@ -130,22 +165,62 @@ func StopManagedRuntime(path string, ownerPID int) bool {
 	if matched {
 		// Biarkan owner menjalankan context-cancel dan cleanup normalnya.
 		terminatePID(ownerPID)
+		removeExactRecords(path, owned)
 	}
 	return matched
+}
+
+// removeExactRecords avoids holding registry locks during process termination.
+// Snapshot records are removed only if unchanged; concurrent registrations survive.
+func removeExactRecords(path string, targets []processRecord) {
+	registryMu.Lock()
+	defer registryMu.Unlock()
+	unlock, err := lockRegistry(path)
+	if err != nil {
+		return
+	}
+	defer unlock()
+	records, err := readProcessRegistry(path)
+	if err != nil {
+		return
+	}
+	kept := records[:0]
+	for _, r := range records {
+		remove := false
+		for _, target := range targets {
+			if r.PID == target.PID && r.Executable == target.Executable && r.Identity == target.Identity && r.Command == target.Command && r.CreatedAt.Equal(target.CreatedAt) && r.OwnerPID == target.OwnerPID && r.OwnerExecutable == target.OwnerExecutable && r.OwnerIdentity == target.OwnerIdentity {
+				remove = true
+				break
+			}
+		}
+		if !remove {
+			kept = append(kept, r)
+		}
+	}
+	if len(kept) == 0 {
+		_ = os.Remove(path)
+	} else {
+		_ = writeProcessRegistry(path, kept)
+	}
 }
 
 // CleanupStaleProcesses memulihkan child hanya bila owner-nya pasti sudah
 // mati. Identitas owner dan child keduanya diverifikasi agar PID reuse tidak
 // mengubah startup cleanup menjadi operasi destruktif.
-func CleanupStaleProcesses(path string) {
+func CleanupStaleProcesses(path string) error {
 	if path == "" {
-		return
+		return os.ErrInvalid
 	}
 	registryMu.Lock()
 	defer registryMu.Unlock()
+	unlock, err := lockRegistry(path)
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	records, err := readProcessRegistry(path)
 	if err != nil {
-		return
+		return err
 	}
 	kept := records[:0]
 	for _, r := range records {
@@ -160,10 +235,15 @@ func CleanupStaleProcesses(path string) {
 		}
 	}
 	if len(kept) == 0 {
-		_ = os.Remove(path)
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
 	} else {
-		_ = writeProcessRegistry(path, kept)
+		if err := writeProcessRegistry(path, kept); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 func recordsForOwner(records []processRecord, ownerPID int, ownerExecutable, ownerIdentity string) []processRecord {
@@ -210,7 +290,10 @@ func writeProcessRegistry(path string, records []processRecord) error {
 	}
 	tmpName := tmp.Name()
 	defer os.Remove(tmpName)
-	_ = tmp.Chmod(0600)
+	if err := chmodRegistryTemp(tmp, 0600); err != nil {
+		_ = tmp.Close()
+		return err
+	}
 	if _, err = tmp.Write(b); err == nil {
 		err = tmp.Close()
 	} else {
@@ -238,7 +321,7 @@ func ownerDefinitelyGone(r processRecord) bool {
 	return !executablesMatch(exe, r.OwnerExecutable) || identity != r.OwnerIdentity
 }
 
-func processCommand(pid int) string { return strings.TrimSpace(processCommandLine(pid)) }
+func processCommand(pid int) (string, error) { return strings.TrimSpace(processCommandLine(pid)), nil }
 
 func recordMatchesProcess(r processRecord) bool {
 	exe, identity := processIdentity(r.PID)
@@ -248,8 +331,8 @@ func recordMatchesProcess(r processRecord) bool {
 	// Windows tidak bisa mengambil command line secara portabel dengan
 	// implementasi saat ini. Identity tetap PID-scoped di sana; Unix
 	// memverifikasi command line juga.
-	command := processCommand(r.PID)
-	return command == "" || commandsMatch(command, r.Command)
+	command, err := processCommand(r.PID)
+	return err == nil && command != "" && r.Command != "" && commandsMatch(command, r.Command)
 }
 
 // Field comm milik ps sengaja pendek dan hanya melaporkan nama proses,

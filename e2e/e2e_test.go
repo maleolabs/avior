@@ -152,7 +152,7 @@ func TestSetupDevelopmentFullPipeline(t *testing.T) {
 	root := t.TempDir()
 	phpFixture(t, root)
 	files := map[string]string{
-		".env.example": "APP_NAME=\"E2E App\"\nAPP_ENV=local\nAPP_KEY=\nDB_CONNECTION=sqlite\nINITIAL_SUPERADMIN_PASSWORD=e2e-smoke-password-123\n",
+		".env.example":  "APP_NAME=\"E2E App\"\nAPP_ENV=local\nAPP_KEY=\nDB_CONNECTION=sqlite\nINITIAL_SUPERADMIN_PASSWORD=e2e-smoke-password-123\n",
 		"composer.json": "{\n  \"name\": \"e2e/fixture\",\n  \"description\": \"fixture e2e\",\n  \"require\": {}\n}\n",
 		"package.json":  "{\n  \"name\": \"e2e-smoke\",\n  \"private\": true,\n  \"scripts\": {\n    \"build\": \"node -e \\\"require('fs').mkdirSync('public/build',{recursive:true}); require('fs').writeFileSync('public/build/manifest.json','{}')\\\"\"\n  }\n}\n",
 	}
@@ -474,7 +474,10 @@ func TestStateAndManagedStop(t *testing.T) {
 	}
 
 	// Stop path CLI (identity-checked): PID tercatat → sinyal terkirim.
-	unregister := processgroup.RegisterProcess(procPath, "sleep 30", id.PID)
+	unregister, err := processgroup.RegisterProcess(procPath, "sleep 30", id.PID)
+	if err != nil {
+		t.Fatalf("register process: %v", err)
+	}
 	if !processgroup.StopManagedProcess(procPath, id.PID) {
 		unregister()
 		t.Fatal("StopManagedProcess menolak proses yang tercatat dan hidup")
