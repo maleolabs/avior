@@ -10,23 +10,25 @@ package trust
 
 static OSStatus sim_add_trust(const UInt8 *bytes, CFIndex length) {
     CFDataRef data = CFDataCreate(NULL, bytes, length);
-    if (!data) return errSecDecode;
+    if (!data) return errSecAllocate;
     SecCertificateRef cert = SecCertificateCreateWithData(NULL, data);
     CFRelease(data);
     if (!cert) return errSecDecode;
-    OSStatus status;
-    SecTrustSettingsDomain domains[] = { kSecTrustSettingsDomainUser };
-    CFArrayRef settings;
-    status = SecTrustSettingsCopyTrustSettings(cert, kSecTrustSettingsDomainUser, &settings);
-    if (status == errSecItemNotFound || status == errSecSuccess) {
-        if (status == errSecSuccess) CFRelease(settings);
+    const void *keys[] = { kSecClass, kSecValueRef };
+    const void *values[] = { kSecClassCertificate, cert };
+    CFDictionaryRef query = CFDictionaryCreate(NULL, keys, values, 2, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    OSStatus status = SecItemAdd(query, NULL);
+    if (status == errSecDuplicateItem) status = errSecSuccess;
+    CFRelease(query);
+    if (status == errSecSuccess) {
         SecPolicyRef policy = SecPolicyCreateSSL(true, NULL);
-        SecTrustSettingsResult setting = kSecTrustSettingsResultTrustRoot;
-        const void *values[] = { CFNumberCreate(NULL, kCFNumberIntType, &setting) };
-        CFArrayRef array = CFArrayCreate(NULL, values, 1, &kCFTypeArrayCallBacks);
-        CFRelease(values[0]);
+        const void *tkeys[] = { kSecTrustSettingsPolicy, kSecTrustSettingsResult };
+        const void *tvalues[] = { policy, kSecTrustSettingsResultTrustRoot };
+        CFDictionaryRef setting = CFDictionaryCreate(NULL, tkeys, tvalues, 2, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+        const void *settings[] = { setting };
+        CFArrayRef array = CFArrayCreate(NULL, settings, 1, &kCFTypeArrayCallBacks);
         status = SecTrustSettingsSetTrustSettings(cert, kSecTrustSettingsDomainUser, array);
-        CFRelease(array); CFRelease(policy);
+        CFRelease(array); CFRelease(setting); CFRelease(policy);
     }
     CFRelease(cert);
     return status;

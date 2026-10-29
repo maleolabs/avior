@@ -70,3 +70,28 @@ func TestRunStopsOnContextCancel(t *testing.T) {
 		t.Fatal("Run tidak selesai setelah context cancel")
 	}
 }
+
+// REGRESI QA: child KEDUA exit instan sementara child PERTAMA masih tidur —
+// Run harus tetap return (loop sekuensial atas Reaped() akan block selamanya
+// di child[0]) dan men-teardown child[0].
+func TestRunReturnsWhenLaterChildExitsFirst(t *testing.T) {
+	sh := lookSh(t)
+	done := make(chan error, 1)
+	go func() {
+		done <- Run(context.Background(), t.TempDir(), []Service{
+			{Name: sh, Args: []string{"-c", "trap '' TERM; sleep 30"}}, // child 0 hidup
+			{Name: sh, Args: []string{"-c", "exit 7"}},                 // child 1 exit instan
+		})
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("child[1] exit harus mengakhiri runtime dengan error")
+		}
+		if !strings.Contains(err.Error(), "berhenti") {
+			t.Fatalf("error tidak menyebut runtime berhenti: %v", err)
+		}
+	case <-time.After(terminateGrace + terminateForce + 3*time.Second):
+		t.Fatal("Run block pada child[0].Reaped() padahal child[1] sudah exit — supervisi tidak multiplexed")
+	}
+}

@@ -149,17 +149,11 @@ func (s *Supervised) recall() (waitResult, bool) {
 // reaped hingga grace, eskalasi Kill ke process group, tunggu hingga force
 // lagi. Idempotent — Terminate ganda aman (sinyal + eskalasi dijalankan
 // sekali via terminateOnce; pemanggil kedua menunggu broadcast done yang
-// sama). Reap TETAP milik satu goroutine reaper; Terminate hanya
-// mengonsumsi broadcast.
+// sama), dan untuk pemanggil konkuren parameter grace/force dari pemanggil
+// PERTAMA yang menang. Reap TETAP milik satu goroutine reaper; Terminate
+// hanya mengonsumsi broadcast.
 func (s *Supervised) Terminate(grace, force time.Duration) error {
-	s.terminateOnce.Do(func() {
-		// Sinyal graceful; error diabaikan secara sadar — child mungkin
-		// sudah exit sendiri, dan eskalasi tetap menutup kasus itu.
-		_ = s.signalGraceful()
-		s.escalate = time.AfterFunc(grace, func() {
-			_ = KillGroup(s.cmd.Process.Pid)
-		})
-	})
+	s.BeginTerminate(grace, force)
 	deadline := time.NewTimer(grace + force)
 	defer deadline.Stop()
 	for {
@@ -188,6 +182,21 @@ func (s *Supervised) Terminate(grace, force time.Duration) error {
 				s.identity.PID, grace, force)
 		}
 	}
+}
+
+// BeginTerminate menjadwalkan sinyal graceful + timer eskalasi Kill tepat
+// sekali (terminateOnce) TANPA menunggu exit. Dipakai stopAll agar SIGTERM
+// terkirim ke semua child sebelum ada pemanggil yang menunggu. Untuk
+// pemanggil konkuren, parameter grace/force pemanggil pertama yang menang.
+func (s *Supervised) BeginTerminate(grace, force time.Duration) {
+	s.terminateOnce.Do(func() {
+		// Sinyal graceful; error diabaikan secara sadar — child mungkin
+		// sudah exit sendiri, dan eskalasi tetap menutup kasus itu.
+		_ = s.signalGraceful()
+		s.escalate = time.AfterFunc(grace, func() {
+			_ = KillGroup(s.cmd.Process.Pid)
+		})
+	})
 }
 
 // stopEscalation membatalkan timer Kill bila child sudah reaped sebelum

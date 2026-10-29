@@ -37,3 +37,52 @@ func TestBundledCertutilVerifiesManifest(t *testing.T) {
 		t.Fatal("expected checksum failure")
 	}
 }
+
+func TestBundledCertutilUsesExplicitResourceDirectory(t *testing.T) {
+	dir := t.TempDir()
+	nss := filepath.Join(dir, "resources", "nss")
+	if err := os.MkdirAll(nss, 0700); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(nss, "certutil")
+	data := []byte("helper")
+	if err := os.WriteFile(p, data, 0700); err != nil {
+		t.Fatal(err)
+	}
+	s := sha256.Sum256(data)
+	m := nssManifest{Helpers: map[string]nssHelper{runtime.GOOS + "/" + runtime.GOARCH: {Path: "certutil", SHA256: hex.EncodeToString(s[:])}}}
+	b, _ := json.Marshal(m)
+	if err := os.WriteFile(filepath.Join(nss, "MANIFEST.json"), b, 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AVIOR_RESOURCE_DIR", filepath.Join(dir, "resources"))
+	got, err := bundledCertutil(filepath.Join(dir, "bin", "avior"))
+	if err != nil || got != p {
+		t.Fatalf("got %q, %v; want %q", got, err, p)
+	}
+}
+
+func TestBundledCertutilUsesRuntimeRoot(t *testing.T) {
+	dir := t.TempDir()
+	nss := filepath.Join(dir, "tools", "avior", "nss")
+	if err := os.MkdirAll(nss, 0700); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(nss, "certutil")
+	data := []byte("helper from runtime root")
+	if err := os.WriteFile(p, data, 0700); err != nil {
+		t.Fatal(err)
+	}
+	s := sha256.Sum256(data)
+	m := nssManifest{Helpers: map[string]nssHelper{runtime.GOOS + "/" + runtime.GOARCH: {Path: "certutil", SHA256: hex.EncodeToString(s[:])}}}
+	b, _ := json.Marshal(m)
+	if err := os.WriteFile(filepath.Join(nss, "MANIFEST.json"), b, 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AVIOR_RESOURCE_DIR", "")
+
+	got, err := bundledCertutil(filepath.Join(t.TempDir(), "bin", "avior"), dir)
+	if err != nil || got != p {
+		t.Fatalf("got %q, %v; want %q", got, err, p)
+	}
+}
