@@ -45,7 +45,7 @@ jobs:
             if [[ ${target%/*} == windows ]]; then
               (cd dist && zip "${name}.zip" "avior-${target%/*}-${target#*/}.exe")
             else
-              tar -C dist -czf "${name}.tar.gz" "avior-${target%/*}-${target#*/}"
+              tar -czf "dist/${name}.tar.gz" -C dist "avior-${target%/*}-${target#*/}"
             fi
           done
       - uses: softprops/action-gh-release@v2
