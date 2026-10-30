@@ -21,7 +21,7 @@ current:
   phase: completed
   worktree: direct on main (single-writer convention)
   pending: (none — all containers completed; plan avior-migration-v2 fulfilled)
-next: backlog (ponytail TUI, caddy auto-acquire wiring, launcher Windows e2e runner) — belum dijadwalkan
+next: ctr:m4-backlog-execution (planned; 3 item — TUI serve, caddy first-run wiring, launcher Windows e2e); eksekusi via /eka-execute saat diminta.
 decisions:
 - plan avior-transformation di-superseded; sisa kerja di-replan sebagai plan:avior-migration-v2 (m1 identitas, m2 CLI parity, m3 distribusi-v2).
 - container phase-5-distribution ditutup: p5-checksum-manifest + p5-install-channels canceled (AC konflik, tanpa konteks), p5-release-ci done.
