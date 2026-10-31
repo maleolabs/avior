@@ -104,3 +104,24 @@ func TestServeWithoutVirtualDomainSkipsCaddy(t *testing.T) {
 }
 
 func contains(s, sub string) bool { return strings.Contains(s, sub) }
+
+// Label TUI pakai vocab produk (review m4-serve-tui); subcommand artisan tak
+// dikenal tetap label teknis.
+func TestServiceLabelsUseProductNames(t *testing.T) {
+	services := []Service{
+		{Name: "php", Args: []string{"artisan", "serve"}},
+		{Name: "php", Args: []string{"artisan", "schedule:work"}},
+		{Name: "php", Args: []string{"artisan", "horizon"}},
+		{Name: "php", Args: []string{"artisan", "pail"}},
+		{Name: "npm", Args: []string{"run", "dev"}},
+		{Name: "caddy", Args: []string{"run", "--config", "Caddyfile"}},
+		{Name: "php", Args: []string{"artisan", "custom:cmd"}},
+	}
+	want := []string{"Laravel", "Scheduler", "Horizon", "Pail", "Vite", "Caddy", "custom:cmd"}
+	got := serviceLabels(services)
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("label[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}

@@ -30,6 +30,26 @@ func TestServeTUIStateUpdates(t *testing.T) {
 	}
 }
 
+// Product gap #2: callback state pertama men-seed daftar service sehingga
+// user melihat service sejak startup, sebelum OnReady.
+func TestServeTUISeedsServiceOnFirstState(t *testing.T) {
+	m := serveTUIModel{status: "STARTING", states: map[string]string{}}
+	updated, _ := m.Update(serveStateMsg{name: "Scheduler", state: "starting"})
+	model := updated.(serveTUIModel)
+	if len(model.services) != 1 || model.services[0] != "Scheduler" {
+		t.Fatalf("service tidak di-seed dari state pertama: %#v", model.services)
+	}
+	if !strings.Contains(model.View(), "Scheduler: STARTING") {
+		t.Fatalf("service hasil seed tidak tampil: %q", model.View())
+	}
+	// Duplikat tidak dobel.
+	updated, _ = model.Update(serveStateMsg{name: "Scheduler", state: "running"})
+	model = updated.(serveTUIModel)
+	if len(model.services) != 1 {
+		t.Fatalf("service dobel: %#v", model.services)
+	}
+}
+
 func TestServeTUIViewElapsedDoesNotMutateModel(t *testing.T) {
 	m := serveTUIModel{status: "RUNNING", started: time.Now().Add(-3 * time.Second)}
 	view := m.View()

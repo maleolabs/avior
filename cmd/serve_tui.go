@@ -80,6 +80,7 @@ func (m serveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.states = make(map[string]string)
 		}
 		m.states[msg.name] = msg.state
+		m.noteService(msg.name)
 		return m, nil
 	case serveDoneMsg:
 		m.drain()
@@ -99,6 +100,19 @@ func (m serveTUIModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tickServe()
 	}
 	return m, nil
+}
+
+// noteService menambahkan service ke daftar tampil saat callback state
+// pertama datang (product gap #2): user melihat service sejak startup,
+// tidak menunggu OnReady. Duplikat di-skip — OnReady menimpa dengan daftar
+// lengkap berurutan runtime.
+func (m *serveTUIModel) noteService(name string) {
+	for _, service := range m.services {
+		if service == name {
+			return
+		}
+	}
+	m.services = append(m.services, name)
 }
 
 // drain mengambil semua update yang tertunda tanpa blocking. State terakhir
@@ -127,6 +141,7 @@ drainStates:
 				m.states = make(map[string]string)
 			}
 			m.states[state.name] = state.state
+			m.noteService(state.name)
 		default:
 			break drainStates
 		}

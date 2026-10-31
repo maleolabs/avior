@@ -435,12 +435,26 @@ func serviceNames(services []Service) []string {
 	return names
 }
 
+// artisanDisplayNames menerjemahkan subcommand artisan ke nama produk yang
+// dikenal user (vocab acceptance: Laravel, Scheduler, Horizon, Pail).
+// Subcommand tak dikenal tetap memakai label teknisnya.
+var artisanDisplayNames = map[string]string{
+	"serve":         "Laravel",
+	"schedule:work": "Scheduler",
+	"horizon":       "Horizon",
+	"pail":          "Pail",
+}
+
 func serviceLabels(services []Service) []string {
 	labels := make([]string, len(services))
 	for i, service := range services {
 		labels[i] = service.Name
 		if len(service.Args) > 1 && service.Args[0] == "artisan" {
-			labels[i] = service.Args[1]
+			if display, ok := artisanDisplayNames[service.Args[1]]; ok {
+				labels[i] = display
+			} else {
+				labels[i] = service.Args[1]
+			}
 		} else if len(service.Args) > 0 && service.Name == "npm" {
 			labels[i] = "Vite"
 		} else if service.Name != "php" {
