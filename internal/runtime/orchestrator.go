@@ -41,9 +41,10 @@ const (
 // StartOptions adalah input Start. Port (bila != 0) dicatat di runtime
 // state proyek sehingga monitor/attach bisa menampilkannya.
 type StartOptions struct {
-	Dir      string
-	Port     int
-	Services []Service
+	Dir            string
+	Port           int
+	Services       []Service
+	OnServiceState func(name, status string)
 }
 
 // Exit melaporkan child pertama yang berhenti (semantik legacy: satu child
@@ -61,6 +62,7 @@ type Supervision struct {
 	cancel context.CancelFunc
 
 	services  []Service
+	onState   func(string, string)
 	sup       []*processgroup.Supervised
 	unreg     []func() error
 	statePath string
@@ -72,6 +74,10 @@ type Supervision struct {
 	once   sync.Once
 	done   chan struct{}
 	result error
+
+	// reported[i]: status final child i sudah di-emit. Hanya goroutine
+	// supervise yang menulis — tanpa mutex.
+	reported []bool
 }
 
 type childExit struct {
@@ -94,9 +100,11 @@ func Start(ctx context.Context, o StartOptions) (*Supervision, error) {
 		ctx:       ctx,
 		cancel:    cancel,
 		services:  o.Services,
+		onState:   o.OnServiceState,
 		raw:       make(chan childExit, len(o.Services)),
 		first:     make(chan Exit, 1),
 		done:      make(chan struct{}),
+		reported:  make([]bool, len(o.Services)),
 		statePath: statePath,
 	}
 	supervised := make([]*processgroup.Supervised, 0, len(o.Services))
@@ -114,6 +122,7 @@ func Start(ctx context.Context, o StartOptions) (*Supervision, error) {
 		}
 	}
 	for i, svc := range o.Services {
+		s.setServiceState(serviceLabels([]Service{svc})[0], "starting")
 		cmd := exec.Command(svc.Name, svc.Args...) // args-list saja, tanpa shell
 		cmd.Dir = o.Dir
 		if svc.Output != nil {
@@ -121,6 +130,7 @@ func Start(ctx context.Context, o StartOptions) (*Supervision, error) {
 		}
 		sup, err := processgroup.StartCmd(cmd)
 		if err != nil {
+			s.setServiceState(serviceLabels([]Service{svc})[0], "failed")
 			teardown()
 			cancel()
 			return nil, fmt.Errorf("runtime: start %s: %w", svc.Name, err)
@@ -145,22 +155,39 @@ func Start(ctx context.Context, o StartOptions) (*Supervision, error) {
 			<-sup.Reaped()
 			s.raw <- childExit{index: i, sup: sup}
 		}(i, sup)
+		s.setServiceState(serviceLabels([]Service{svc})[0], "running")
 	}
 	s.sup = supervised
 	go s.supervise(teardown)
 	return s, nil
 }
 
+func (s *Supervision) setServiceState(name, status string) {
+	if s.onState != nil {
+		s.onState(name, status)
+	}
+}
+
 // supervise mengawasi: child PERTAMA yang exit mengakhiri runtime (teardown
 // semua), ctx.Done (Ctrl+C) memicu teardown graceful dengan hasil nil.
 func (s *Supervision) supervise(teardown func()) {
 	defer close(s.done)
-	defer teardown()
+	defer func() {
+		teardown()
+		// Emit status final SEMUA child yang sudah reaped di sini —
+		// deterministik sebelum done close (regresi QA flake: emit dari
+		// goroutine per-child bisa kalah race dengan close(done) sehingga
+		// status "exited" hilang). Child yang belum reaped (Terminate
+		// kehabisan grace+force) dilewati non-blocking — tanpa shutdown
+		// stall; perilaku lama juga tidak meng-emit untuk kasus itu.
+		s.emitFinalStates()
+	}()
 	select {
 	case <-s.ctx.Done():
 		s.result = nil
 	case e := <-s.raw:
 		err := e.sup.Wait()
+		s.reportState(e.index, err)
 		stopAll(s.sup)
 		first := Exit{Service: s.services[e.index].Name, Err: err}
 		// Fan-out non-blocking: cap 1 menjamin pengirim pertama selalu muat;
@@ -181,6 +208,33 @@ func (s *Supervision) supervise(teardown func()) {
 // (untuk race readiness vs child exit). Nilai tetap terbuffer bila tidak
 // ada pembaca; membaca lebih dari satu kali tidak menghasilkan apa-apa.
 func (s *Supervision) Exited() <-chan Exit { return s.first }
+
+// reportState meng-emit status final satu child ("exited", atau "failed"
+// bila exit dengan error saat runtime masih hidup) dan menandainya agar
+// tidak di-emit ganda. Dipanggil hanya dari goroutine supervise.
+func (s *Supervision) reportState(i int, err error) {
+	status := "exited"
+	if err != nil && s.ctx.Err() == nil {
+		status = "failed"
+	}
+	s.setServiceState(serviceLabels([]Service{s.services[i]})[0], status)
+	s.reported[i] = true
+}
+
+// emitFinalStates men-emit status final tiap child yang sudah reaped tapi
+// belum dilaporkan; non-blocking terhadap child yang belum reaped.
+func (s *Supervision) emitFinalStates() {
+	for i, sup := range s.sup {
+		if s.reported[i] {
+			continue
+		}
+		select {
+		case <-sup.Reaped():
+			s.reportState(i, sup.Wait())
+		default:
+		}
+	}
+}
 
 // Wait menunggu runtime berakhir: child pertama exit (error) atau ctx.Done
 // (nil). Idempoten.

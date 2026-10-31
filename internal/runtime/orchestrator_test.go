@@ -5,7 +5,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -191,6 +193,28 @@ func TestRunStopsWhenChildExits(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "berhenti") {
 		t.Fatalf("error tidak menyebut runtime berhenti: %v", err)
+	}
+}
+
+func TestServiceLifecycleUpdates(t *testing.T) {
+	sh := lookSh(t)
+	var mu sync.Mutex
+	var states []string
+	sup, err := Start(context.Background(), StartOptions{Dir: t.TempDir(), Services: []Service{{Name: sh, Args: []string{"-c", "sleep 30"}}}, OnServiceState: func(_, status string) {
+		mu.Lock()
+		states = append(states, status)
+		mu.Unlock()
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sup.Stop()
+	_ = sup.Wait()
+	mu.Lock()
+	defer mu.Unlock()
+	want := []string{"starting", "running", "exited"}
+	if !reflect.DeepEqual(states, want) {
+		t.Fatalf("states = %v, want %v", states, want)
 	}
 }
 
