@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -22,6 +23,13 @@ import (
 	"github.com/maleolabs/avior/internal/trust"
 )
 
+var (
+	fetchManagedCaddy   = proxy.FetchCaddy
+	verifyManagedCaddy  = proxy.VerifyManaged
+	validateCaddyConfig = proxy.ValidateConfig
+	caddyBinaryPin      = proxy.CaddyBinaryPin
+)
+
 // ServeOptions adalah seluruh intent serve dari CLI. VirtualDomain/HTTPS/
 // TrustLocalCA berisi nilai flag mentah (default production); normalisasi
 // mode dilakukan Serve lewat NormalizeServeOptions dengan Changed.
@@ -29,21 +37,23 @@ type ServeOptions struct {
 	Root string
 	Mode mode.Mode
 
-	Host           string
-	Port           int
-	VitePort       int
-	CaddyPort      int
-	Domain         string
-	VirtualDomain  bool
-	HTTPS          bool
-	TrustLocalCA   bool
-	CertStorage    string
-	Hosts          bool // consent hosts eksplisit (cmd sudah menuntut --yes)
-	Queue          *bool
-	Scheduler      *bool
-	Changed        map[string]bool
-	NonInteractive bool
-	OutputMode     OutputMode
+	Host                 string
+	Port                 int
+	VitePort             int
+	CaddyPort            int
+	Domain               string
+	VirtualDomain        bool
+	HTTPS                bool
+	TrustLocalCA         bool
+	CertStorage          string
+	Hosts                bool // consent hosts eksplisit (cmd sudah menuntut --yes)
+	Queue                *bool
+	Scheduler            *bool
+	Changed              map[string]bool
+	NonInteractive       bool
+	AcceptCaddyDownload  bool
+	ConfirmCaddyDownload func() (bool, error)
+	OutputMode           OutputMode
 
 	Out io.Writer
 }
@@ -119,7 +129,7 @@ func Serve(ctx context.Context, o ServeOptions) error {
 	}()
 	var trustManager *trust.TrustManager
 	if virtual {
-		svc, manager, configPath, caddyPort, err := prepareCaddy(o, domain, https)
+		svc, manager, configPath, caddyPort, err := prepareCaddy(ctx, o, domain, https)
 		if err != nil {
 			return err
 		}
@@ -275,13 +285,47 @@ func planHasPail(root string) bool {
 // port, dan menyiapkan storage cert. Binary PATH-fallback hanya boleh untuk
 // child `caddy run` non-privileged; jalur privileged (`caddy trust`)
 // divalidasi terpisah lewat proxy.VerifyManaged (hash-before-exec, M-1).
-func prepareCaddy(o ServeOptions, domain string, https bool) (Service, *trust.TrustManager, string, int, error) {
-	caddy, err := proxy.CaddyPath(o.Root)
-	if err != nil {
+func prepareCaddy(ctx context.Context, o ServeOptions, domain string, https bool) (Service, *trust.TrustManager, string, int, error) {
+	caddy := proxy.ManagedCaddyPath()
+	if _, err := os.Stat(caddy); err == nil {
+		if err := verifyManagedCaddy(caddy); err != nil {
+			return Service{}, nil, "", 0, fmt.Errorf("Caddy terkelola gagal diverifikasi: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
 		return Service{}, nil, "", 0, err
-	}
-	if err := proxy.VerifyPATH(caddy); err != nil {
-		return Service{}, nil, "", 0, err
+	} else {
+		if o.Mode == mode.ModeDevelopment {
+			if pathBinary, pathErr := proxy.CaddyPath(o.Root); pathErr == nil {
+				if err := proxy.VerifyPATH(pathBinary); err != nil {
+					return Service{}, nil, "", 0, err
+				}
+				caddy = pathBinary
+			} else {
+				return Service{}, nil, "", 0, pathErr
+			}
+		} else {
+			if _, ok := caddyBinaryPin(goruntime.GOOS, goruntime.GOARCH); !ok {
+				return Service{}, nil, "", 0, fmt.Errorf("pin checksum Caddy untuk %s/%s tidak tersedia; tambahkan pin di internal/proxy/pins.go", goruntime.GOOS, goruntime.GOARCH)
+			}
+			if !o.AcceptCaddyDownload {
+				if o.NonInteractive || o.ConfirmCaddyDownload == nil {
+					return Service{}, nil, "", 0, fmt.Errorf("Caddy belum terpasang; unduhan membutuhkan consent. Jalankan ulang dengan --yes atau gunakan terminal interaktif")
+				}
+				accepted, err := o.ConfirmCaddyDownload()
+				if err != nil {
+					return Service{}, nil, "", 0, fmt.Errorf("konfirmasi unduhan Caddy: %w", err)
+				}
+				if !accepted {
+					return Service{}, nil, "", 0, fmt.Errorf("unduhan Caddy dibatalkan")
+				}
+			}
+			if err := fetchManagedCaddy(ctx, caddy); err != nil {
+				return Service{}, nil, "", 0, err
+			}
+			if err := verifyManagedCaddy(caddy); err != nil {
+				return Service{}, nil, "", 0, fmt.Errorf("Caddy hasil unduhan gagal diverifikasi: %w", err)
+			}
+		}
 	}
 	port, err := proxy.SelectCaddyPort(o.CaddyPort, o.Port)
 	if err != nil {
@@ -318,7 +362,7 @@ func prepareCaddy(o ServeOptions, domain string, https bool) (Service, *trust.Tr
 		return Service{}, nil, "", 0, err
 	}
 	f.Close()
-	if err := proxy.ValidateConfig(caddy, f.Name()); err != nil {
+	if err := validateCaddyConfig(caddy, f.Name()); err != nil {
 		return Service{}, nil, "", 0, fmt.Errorf("konfigurasi Caddy invalid (Caddyfile disimpan di %s): %w", f.Name(), err)
 	}
 	manager := trust.NewTrustManager(caddy, storage, o.Root)

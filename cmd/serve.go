@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 
@@ -72,24 +73,34 @@ var serveCmd = &cobra.Command{
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer stop()
 		return runtime.Serve(ctx, runtime.ServeOptions{
-			Root:           flagRoot,
-			Mode:           m,
-			Host:           serveHost,
-			Port:           servePort,
-			VitePort:       serveVitePort,
-			CaddyPort:      serveCaddyPort,
-			Domain:         serveDomain,
-			VirtualDomain:  serveVirtualDomain,
-			HTTPS:          serveHTTPS,
-			TrustLocalCA:   serveTrustLocalCA,
-			CertStorage:    serveCertStorage,
-			Hosts:          serveHosts,
-			Queue:          queue,
-			Scheduler:      scheduler,
-			Changed:        map[string]bool{"virtual-domain": cmd.Flags().Changed("virtual-domain"), "https": cmd.Flags().Changed("https"), "trust-local-ca": cmd.Flags().Changed("trust-local-ca")},
-			NonInteractive: nonInteractive,
-			OutputMode:     runtime.OutputMode(serveOutput),
-			Out:            cmd.OutOrStdout(),
+			Root:                flagRoot,
+			Mode:                m,
+			Host:                serveHost,
+			Port:                servePort,
+			VitePort:            serveVitePort,
+			CaddyPort:           serveCaddyPort,
+			Domain:              serveDomain,
+			VirtualDomain:       serveVirtualDomain,
+			HTTPS:               serveHTTPS,
+			TrustLocalCA:        serveTrustLocalCA,
+			CertStorage:         serveCertStorage,
+			Hosts:               serveHosts,
+			Queue:               queue,
+			Scheduler:           scheduler,
+			Changed:             map[string]bool{"virtual-domain": cmd.Flags().Changed("virtual-domain"), "https": cmd.Flags().Changed("https"), "trust-local-ca": cmd.Flags().Changed("trust-local-ca")},
+			NonInteractive:      nonInteractive,
+			AcceptCaddyDownload: flagYes,
+			ConfirmCaddyDownload: func() (bool, error) {
+				fmt.Fprint(cmd.OutOrStdout(), "Caddy belum ada. Unduh dan verifikasi Caddy dari rilis resmi? [y/N]: ")
+				var answer string
+				_, err := fmt.Fscanln(cmd.InOrStdin(), &answer)
+				if err != nil && err != io.EOF {
+					return false, err
+				}
+				return answer == "y" || answer == "Y" || answer == "yes" || answer == "YES", nil
+			},
+			OutputMode: runtime.OutputMode(serveOutput),
+			Out:        cmd.OutOrStdout(),
 		})
 	},
 }

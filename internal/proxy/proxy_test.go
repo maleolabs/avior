@@ -3,6 +3,7 @@ package proxy
 import (
 	"archive/tar"
 	"archive/zip"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
@@ -151,6 +152,84 @@ func TestFetchCaddyFailsClosedWithoutPin(t *testing.T) {
 	}
 	if _, statErr := os.Stat(ManifestPath()); !os.IsNotExist(statErr) {
 		t.Fatal("manifest tidak boleh ditulis tanpa pin")
+	}
+}
+
+func TestFetchCaddyFirstRunManagedAndFailClosed(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	binName := "caddy"
+	if stdruntime.GOOS == "windows" {
+		binName += ".exe"
+	}
+	// VerifyManaged invokes `version`; marker proves bad pinned bytes never execute.
+	marker := filepath.Join(t.TempDir(), "executed")
+	if stdruntime.GOOS == "windows" {
+		t.Skip("shell execution marker unavailable on Windows")
+	}
+	payload := []byte("#!/bin/sh\ntouch " + marker + "\necho 'v2.10.0 h1:test'\n")
+	archive := func(content []byte) []byte {
+		var b bytes.Buffer
+		gz := gzip.NewWriter(&b)
+		tw := tar.NewWriter(gz)
+		_ = tw.WriteHeader(&tar.Header{Name: binName, Mode: 0755, Size: int64(len(content)), Typeflag: tar.TypeReg})
+		_, _ = tw.Write(content)
+		_ = tw.Close()
+		_ = gz.Close()
+		return b.Bytes()
+	}
+	serve := func(status int, body []byte) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(status); _, _ = w.Write(body) }))
+	}
+	goodHash := sha256.Sum256(payload)
+	oldPin := pinOverride
+	defer func() { pinOverride = oldPin }()
+	oldURL := urlOverride
+	defer func() { urlOverride = oldURL }()
+	dest := filepath.Join(t.TempDir(), binName)
+	t.Run("success fetch then managed verification", func(t *testing.T) {
+		s := serve(http.StatusOK, archive(payload))
+		defer s.Close()
+		urlOverride = func() string { return s.URL }
+		pinOverride = func(_, _ string) (string, bool) { return hex.EncodeToString(goodHash[:]), true }
+		if err := FetchCaddy(context.Background(), dest); err != nil {
+			t.Fatal(err)
+		}
+		if err := VerifyManaged(dest); err != nil {
+			t.Fatalf("VerifyManaged: %v", err)
+		}
+		if _, err := os.Stat(marker); err != nil {
+			t.Fatalf("managed binary not executed: %v", err)
+		}
+	})
+	for _, tc := range []struct {
+		name   string
+		status int
+		data   []byte
+		pin    string
+	}{{"download failure", http.StatusBadGateway, nil, hex.EncodeToString(goodHash[:])}, {"pin mismatch", http.StatusOK, archive(payload), strings.Repeat("0", 64)}} {
+		t.Run(tc.name, func(t *testing.T) {
+			_ = os.Remove(dest)
+			_ = os.Remove(ManifestPath())
+			_ = os.Remove(marker)
+			s := serve(tc.status, tc.data)
+			defer s.Close()
+			urlOverride = func() string { return s.URL }
+			pinOverride = func(_, _ string) (string, bool) { return tc.pin, true }
+			if err := FetchCaddy(context.Background(), dest); err == nil {
+				t.Fatal("expected FetchCaddy failure")
+			}
+			if _, err := os.Stat(dest); !os.IsNotExist(err) {
+				t.Fatalf("binary remains usable: %v", err)
+			}
+			if _, err := os.Stat(ManifestPath()); !os.IsNotExist(err) {
+				t.Fatalf("manifest remains: %v", err)
+			}
+			if _, err := os.Stat(marker); !os.IsNotExist(err) {
+				t.Fatalf("unverified binary executed: %v", err)
+			}
+		})
 	}
 }
 
