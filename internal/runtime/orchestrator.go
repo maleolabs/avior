@@ -41,9 +41,10 @@ const (
 // StartOptions adalah input Start. Port (bila != 0) dicatat di runtime
 // state proyek sehingga monitor/attach bisa menampilkannya.
 type StartOptions struct {
-	Dir      string
-	Port     int
-	Services []Service
+	Dir            string
+	Port           int
+	Services       []Service
+	OnServiceState func(name, status string)
 }
 
 // Exit melaporkan child pertama yang berhenti (semantik legacy: satu child
@@ -61,6 +62,7 @@ type Supervision struct {
 	cancel context.CancelFunc
 
 	services  []Service
+	onState   func(string, string)
 	sup       []*processgroup.Supervised
 	unreg     []func() error
 	statePath string
@@ -94,6 +96,7 @@ func Start(ctx context.Context, o StartOptions) (*Supervision, error) {
 		ctx:       ctx,
 		cancel:    cancel,
 		services:  o.Services,
+		onState:   o.OnServiceState,
 		raw:       make(chan childExit, len(o.Services)),
 		first:     make(chan Exit, 1),
 		done:      make(chan struct{}),
@@ -114,6 +117,7 @@ func Start(ctx context.Context, o StartOptions) (*Supervision, error) {
 		}
 	}
 	for i, svc := range o.Services {
+		s.setServiceState(serviceLabels([]Service{svc})[0], "starting")
 		cmd := exec.Command(svc.Name, svc.Args...) // args-list saja, tanpa shell
 		cmd.Dir = o.Dir
 		if svc.Output != nil {
@@ -121,6 +125,7 @@ func Start(ctx context.Context, o StartOptions) (*Supervision, error) {
 		}
 		sup, err := processgroup.StartCmd(cmd)
 		if err != nil {
+			s.setServiceState(serviceLabels([]Service{svc})[0], "failed")
 			teardown()
 			cancel()
 			return nil, fmt.Errorf("runtime: start %s: %w", svc.Name, err)
@@ -143,12 +148,24 @@ func Start(ctx context.Context, o StartOptions) (*Supervision, error) {
 		}
 		go func(i int, sup *processgroup.Supervised) {
 			<-sup.Reaped()
+			status := "exited"
+			if err := sup.Wait(); err != nil && s.ctx.Err() == nil {
+				status = "failed"
+			}
+			s.setServiceState(serviceLabels([]Service{s.services[i]})[0], status)
 			s.raw <- childExit{index: i, sup: sup}
 		}(i, sup)
+		s.setServiceState(serviceLabels([]Service{svc})[0], "running")
 	}
 	s.sup = supervised
 	go s.supervise(teardown)
 	return s, nil
+}
+
+func (s *Supervision) setServiceState(name, status string) {
+	if s.onState != nil {
+		s.onState(name, status)
+	}
 }
 
 // supervise mengawasi: child PERTAMA yang exit mengakhiri runtime (teardown
