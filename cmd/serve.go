@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 
@@ -25,6 +26,7 @@ var (
 	serveQueue         bool
 	serveScheduler     bool
 	serveOutput        string
+	serveTUI           bool
 )
 
 // serveCmd mengekspos runtime supervisor (dev: Laravel+Horizon+scheduler+
@@ -71,26 +73,50 @@ var serveCmd = &cobra.Command{
 		nonInteractive := !stdinInteractive(cmd.InOrStdin())
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer stop()
-		return runtime.Serve(ctx, runtime.ServeOptions{
-			Root:           flagRoot,
-			Mode:           m,
-			Host:           serveHost,
-			Port:           servePort,
-			VitePort:       serveVitePort,
-			CaddyPort:      serveCaddyPort,
-			Domain:         serveDomain,
-			VirtualDomain:  serveVirtualDomain,
-			HTTPS:          serveHTTPS,
-			TrustLocalCA:   serveTrustLocalCA,
-			CertStorage:    serveCertStorage,
-			Hosts:          serveHosts,
-			Queue:          queue,
-			Scheduler:      scheduler,
-			Changed:        map[string]bool{"virtual-domain": cmd.Flags().Changed("virtual-domain"), "https": cmd.Flags().Changed("https"), "trust-local-ca": cmd.Flags().Changed("trust-local-ca")},
-			NonInteractive: nonInteractive,
-			OutputMode:     runtime.OutputMode(serveOutput),
-			Out:            cmd.OutOrStdout(),
-		})
+		options := runtime.ServeOptions{
+			Root:                flagRoot,
+			Mode:                m,
+			Host:                serveHost,
+			Port:                servePort,
+			VitePort:            serveVitePort,
+			CaddyPort:           serveCaddyPort,
+			Domain:              serveDomain,
+			VirtualDomain:       serveVirtualDomain,
+			HTTPS:               serveHTTPS,
+			TrustLocalCA:        serveTrustLocalCA,
+			CertStorage:         serveCertStorage,
+			Hosts:               serveHosts,
+			Queue:               queue,
+			Scheduler:           scheduler,
+			Changed:             map[string]bool{"virtual-domain": cmd.Flags().Changed("virtual-domain"), "https": cmd.Flags().Changed("https"), "trust-local-ca": cmd.Flags().Changed("trust-local-ca")},
+			NonInteractive:      nonInteractive,
+			AcceptCaddyDownload: flagYes,
+			ConfirmCaddyDownload: func() (bool, error) {
+				fmt.Fprint(cmd.OutOrStdout(), "Caddy belum ada. Unduh dan verifikasi Caddy dari rilis resmi? [y/N]: ")
+				var answer string
+				_, err := fmt.Fscanln(cmd.InOrStdin(), &answer)
+				if err != nil && err != io.EOF {
+					return false, err
+				}
+				return answer == "y" || answer == "Y" || answer == "yes" || answer == "YES", nil
+			},
+			OutputMode: runtime.OutputMode(serveOutput),
+			Out:        cmd.OutOrStdout(),
+		}
+		if serveTUI {
+			if m != mode.ModeDevelopment {
+				return fmt.Errorf("--tui hanya tersedia untuk mode development")
+			}
+			if !stdinInteractive(cmd.InOrStdin()) || !stdoutInteractive(cmd.OutOrStdout()) {
+				return fmt.Errorf("--tui membutuhkan stdin dan stdout TTY; jalankan di terminal interaktif atau hapus --tui untuk output teks")
+			}
+			return runServeTUI(ctx, func(ctx context.Context, ready func([]string), state func(string, string)) error {
+				options.OnReady = ready
+				options.OnServiceState = state
+				return runtime.Serve(ctx, options)
+			}, cmd.InOrStdin(), cmd.OutOrStdout())
+		}
+		return runtime.Serve(ctx, options)
 	},
 }
 
@@ -110,4 +136,10 @@ func init() {
 	serveCmd.Flags().BoolVar(&serveQueue, "queue", false, "jalankan queue worker (otoritatif saat di-set)")
 	serveCmd.Flags().BoolVar(&serveScheduler, "scheduler", false, "jalankan scheduler (otoritatif saat di-set)")
 	serveCmd.Flags().StringVar(&serveOutput, "output", "concise", "output runtime: concise atau detail")
+	serveCmd.Flags().BoolVar(&serveTUI, "tui", false, "tampilkan status runtime live di terminal")
+}
+
+func stdoutInteractive(out any) bool {
+	f, ok := out.(*os.File)
+	return ok && isTTY(f)
 }

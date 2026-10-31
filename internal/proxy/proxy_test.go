@@ -3,6 +3,7 @@ package proxy
 import (
 	"archive/tar"
 	"archive/zip"
+	"bytes"
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
@@ -154,6 +155,84 @@ func TestFetchCaddyFailsClosedWithoutPin(t *testing.T) {
 	}
 }
 
+func TestFetchCaddyFirstRunManagedAndFailClosed(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	binName := "caddy"
+	if stdruntime.GOOS == "windows" {
+		binName += ".exe"
+	}
+	// VerifyManaged invokes `version`; marker proves bad pinned bytes never execute.
+	marker := filepath.Join(t.TempDir(), "executed")
+	if stdruntime.GOOS == "windows" {
+		t.Skip("shell execution marker unavailable on Windows")
+	}
+	payload := []byte("#!/bin/sh\ntouch " + marker + "\necho 'v2.10.0 h1:test'\n")
+	archive := func(content []byte) []byte {
+		var b bytes.Buffer
+		gz := gzip.NewWriter(&b)
+		tw := tar.NewWriter(gz)
+		_ = tw.WriteHeader(&tar.Header{Name: binName, Mode: 0755, Size: int64(len(content)), Typeflag: tar.TypeReg})
+		_, _ = tw.Write(content)
+		_ = tw.Close()
+		_ = gz.Close()
+		return b.Bytes()
+	}
+	serve := func(status int, body []byte) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(status); _, _ = w.Write(body) }))
+	}
+	goodHash := sha256.Sum256(payload)
+	oldPin := pinOverride
+	defer func() { pinOverride = oldPin }()
+	oldURL := urlOverride
+	defer func() { urlOverride = oldURL }()
+	dest := filepath.Join(t.TempDir(), binName)
+	t.Run("success fetch then managed verification", func(t *testing.T) {
+		s := serve(http.StatusOK, archive(payload))
+		defer s.Close()
+		urlOverride = func() string { return s.URL }
+		pinOverride = func(_, _ string) (string, bool) { return hex.EncodeToString(goodHash[:]), true }
+		if err := FetchCaddy(context.Background(), dest); err != nil {
+			t.Fatal(err)
+		}
+		if err := VerifyManaged(dest); err != nil {
+			t.Fatalf("VerifyManaged: %v", err)
+		}
+		if _, err := os.Stat(marker); err != nil {
+			t.Fatalf("managed binary not executed: %v", err)
+		}
+	})
+	for _, tc := range []struct {
+		name   string
+		status int
+		data   []byte
+		pin    string
+	}{{"download failure", http.StatusBadGateway, nil, hex.EncodeToString(goodHash[:])}, {"pin mismatch", http.StatusOK, archive(payload), strings.Repeat("0", 64)}} {
+		t.Run(tc.name, func(t *testing.T) {
+			_ = os.Remove(dest)
+			_ = os.Remove(ManifestPath())
+			_ = os.Remove(marker)
+			s := serve(tc.status, tc.data)
+			defer s.Close()
+			urlOverride = func() string { return s.URL }
+			pinOverride = func(_, _ string) (string, bool) { return tc.pin, true }
+			if err := FetchCaddy(context.Background(), dest); err == nil {
+				t.Fatal("expected FetchCaddy failure")
+			}
+			if _, err := os.Stat(dest); !os.IsNotExist(err) {
+				t.Fatalf("binary remains usable: %v", err)
+			}
+			if _, err := os.Stat(ManifestPath()); !os.IsNotExist(err) {
+				t.Fatalf("manifest remains: %v", err)
+			}
+			if _, err := os.Stat(marker); !os.IsNotExist(err) {
+				t.Fatalf("unverified binary executed: %v", err)
+			}
+		})
+	}
+}
+
 // Checksum binary hasil download yang tidak cocok pin → ditolak, file
 // dihapus, manifest tidak ditulis (Kontrak B, hash-before-record).
 func TestFetchCaddyRejectsPinMismatch(t *testing.T) {
@@ -184,6 +263,52 @@ func TestFetchCaddyRejectsPinMismatch(t *testing.T) {
 	}
 	if _, statErr := os.Stat(ManifestPath()); !os.IsNotExist(statErr) {
 		t.Fatal("manifest tidak boleh ditulis saat pin mismatch")
+	}
+}
+
+// Race first-run concurrent (path EEXIST, deterministik tanpa goroutine):
+// destination sudah ada → proses kedua wajib gagal actionable "sudah
+// terpasang" TANPA menghapus binary existing milik proses pertama; manifest
+// juga tidak boleh ditulis dari file yang tidak di-create proses ini.
+func TestFetchCaddyEEXISTKeepsExistingBinary(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	oldPin := pinOverride
+	pin := sha256.Sum256([]byte("data"))
+	pinOverride = func(_, _ string) (string, bool) { return hex.EncodeToString(pin[:]), true }
+	defer func() { pinOverride = oldPin }()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gz := gzip.NewWriter(w)
+		tw := tar.NewWriter(gz)
+		_ = tw.WriteHeader(&tar.Header{Name: "caddy", Mode: 0755, Size: 4, Typeflag: tar.TypeReg})
+		_, _ = tw.Write([]byte("data"))
+		_ = tw.Close()
+		_ = gz.Close()
+	}))
+	defer server.Close()
+	old := urlOverride
+	urlOverride = func() string { return server.URL }
+	defer func() { urlOverride = old }()
+	dest := filepath.Join(t.TempDir(), "caddy")
+	// Simulasi binary terverifikasi milik "winner" yang datang lebih dulu.
+	winner := []byte("winner-verified-binary")
+	if err := os.WriteFile(dest, winner, 0755); err != nil {
+		t.Fatal(err)
+	}
+	err := FetchCaddy(context.Background(), dest)
+	if err == nil {
+		t.Fatal("EEXIST harus ditolak, bukan diam-diam menimpa")
+	}
+	if !strings.Contains(err.Error(), "sudah terpasang") {
+		t.Fatalf("pesan harus actionable: %v", err)
+	}
+	got, readErr := os.ReadFile(dest)
+	if readErr != nil || !bytes.Equal(got, winner) {
+		t.Fatalf("binary winner terhapus/berubah: content=%q err=%v", got, readErr)
+	}
+	if _, statErr := os.Stat(ManifestPath()); !os.IsNotExist(statErr) {
+		t.Fatal("manifest tidak boleh ditulis dari file yang tidak di-create proses ini")
 	}
 }
 

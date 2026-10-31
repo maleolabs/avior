@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -22,6 +23,13 @@ import (
 	"github.com/maleolabs/avior/internal/trust"
 )
 
+var (
+	fetchManagedCaddy   = proxy.FetchCaddy
+	verifyManagedCaddy  = proxy.VerifyManaged
+	validateCaddyConfig = proxy.ValidateConfig
+	caddyBinaryPin      = proxy.CaddyBinaryPin
+)
+
 // ServeOptions adalah seluruh intent serve dari CLI. VirtualDomain/HTTPS/
 // TrustLocalCA berisi nilai flag mentah (default production); normalisasi
 // mode dilakukan Serve lewat NormalizeServeOptions dengan Changed.
@@ -29,23 +37,27 @@ type ServeOptions struct {
 	Root string
 	Mode mode.Mode
 
-	Host           string
-	Port           int
-	VitePort       int
-	CaddyPort      int
-	Domain         string
-	VirtualDomain  bool
-	HTTPS          bool
-	TrustLocalCA   bool
-	CertStorage    string
-	Hosts          bool // consent hosts eksplisit (cmd sudah menuntut --yes)
-	Queue          *bool
-	Scheduler      *bool
-	Changed        map[string]bool
-	NonInteractive bool
-	OutputMode     OutputMode
+	Host                 string
+	Port                 int
+	VitePort             int
+	CaddyPort            int
+	Domain               string
+	VirtualDomain        bool
+	HTTPS                bool
+	TrustLocalCA         bool
+	CertStorage          string
+	Hosts                bool // consent hosts eksplisit (cmd sudah menuntut --yes)
+	Queue                *bool
+	Scheduler            *bool
+	Changed              map[string]bool
+	NonInteractive       bool
+	AcceptCaddyDownload  bool
+	ConfirmCaddyDownload func() (bool, error)
+	OutputMode           OutputMode
 
-	Out io.Writer
+	Out            io.Writer
+	OnReady        func([]string)
+	OnServiceState func(string, string)
 }
 
 // OutputMode mengatur verbositas output runtime.
@@ -119,7 +131,7 @@ func Serve(ctx context.Context, o ServeOptions) error {
 	}()
 	var trustManager *trust.TrustManager
 	if virtual {
-		svc, manager, configPath, caddyPort, err := prepareCaddy(o, domain, https)
+		svc, manager, configPath, caddyPort, err := prepareCaddy(ctx, o, domain, https)
 		if err != nil {
 			return err
 		}
@@ -145,7 +157,7 @@ func Serve(ctx context.Context, o ServeOptions) error {
 			services[i].Output = buffers[i]
 		}
 	}
-	sup, err := Start(ctx, StartOptions{Dir: o.Root, Port: o.Port, Services: services})
+	sup, err := Start(ctx, StartOptions{Dir: o.Root, Port: o.Port, Services: services, OnServiceState: o.OnServiceState})
 	if err != nil {
 		return err
 	}
@@ -183,6 +195,9 @@ func Serve(ctx context.Context, o ServeOptions) error {
 		_ = sup.Wait()
 		printExitTails(o.Out, o.OutputMode, services, buffers)
 		return err
+	}
+	if o.OnReady != nil {
+		o.OnReady(serviceLabels(services))
 	}
 	if virtual {
 		if https {
@@ -275,13 +290,47 @@ func planHasPail(root string) bool {
 // port, dan menyiapkan storage cert. Binary PATH-fallback hanya boleh untuk
 // child `caddy run` non-privileged; jalur privileged (`caddy trust`)
 // divalidasi terpisah lewat proxy.VerifyManaged (hash-before-exec, M-1).
-func prepareCaddy(o ServeOptions, domain string, https bool) (Service, *trust.TrustManager, string, int, error) {
-	caddy, err := proxy.CaddyPath(o.Root)
-	if err != nil {
+func prepareCaddy(ctx context.Context, o ServeOptions, domain string, https bool) (Service, *trust.TrustManager, string, int, error) {
+	caddy := proxy.ManagedCaddyPath()
+	if _, err := os.Stat(caddy); err == nil {
+		if err := verifyManagedCaddy(caddy); err != nil {
+			return Service{}, nil, "", 0, fmt.Errorf("Caddy terkelola gagal diverifikasi: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
 		return Service{}, nil, "", 0, err
-	}
-	if err := proxy.VerifyPATH(caddy); err != nil {
-		return Service{}, nil, "", 0, err
+	} else {
+		if o.Mode == mode.ModeDevelopment {
+			if pathBinary, pathErr := proxy.CaddyPath(o.Root); pathErr == nil {
+				if err := proxy.VerifyPATH(pathBinary); err != nil {
+					return Service{}, nil, "", 0, err
+				}
+				caddy = pathBinary
+			} else {
+				return Service{}, nil, "", 0, pathErr
+			}
+		} else {
+			if _, ok := caddyBinaryPin(goruntime.GOOS, goruntime.GOARCH); !ok {
+				return Service{}, nil, "", 0, fmt.Errorf("pin checksum Caddy untuk %s/%s tidak tersedia; tambahkan pin di internal/proxy/pins.go", goruntime.GOOS, goruntime.GOARCH)
+			}
+			if !o.AcceptCaddyDownload {
+				if o.NonInteractive || o.ConfirmCaddyDownload == nil {
+					return Service{}, nil, "", 0, fmt.Errorf("Caddy belum terpasang; unduhan membutuhkan consent. Jalankan ulang dengan --yes atau gunakan terminal interaktif")
+				}
+				accepted, err := o.ConfirmCaddyDownload()
+				if err != nil {
+					return Service{}, nil, "", 0, fmt.Errorf("konfirmasi unduhan Caddy: %w", err)
+				}
+				if !accepted {
+					return Service{}, nil, "", 0, fmt.Errorf("unduhan Caddy dibatalkan")
+				}
+			}
+			if err := fetchManagedCaddy(ctx, caddy); err != nil {
+				return Service{}, nil, "", 0, err
+			}
+			if err := verifyManagedCaddy(caddy); err != nil {
+				return Service{}, nil, "", 0, fmt.Errorf("Caddy hasil unduhan gagal diverifikasi: %w", err)
+			}
+		}
 	}
 	port, err := proxy.SelectCaddyPort(o.CaddyPort, o.Port)
 	if err != nil {
@@ -318,7 +367,7 @@ func prepareCaddy(o ServeOptions, domain string, https bool) (Service, *trust.Tr
 		return Service{}, nil, "", 0, err
 	}
 	f.Close()
-	if err := proxy.ValidateConfig(caddy, f.Name()); err != nil {
+	if err := validateCaddyConfig(caddy, f.Name()); err != nil {
 		return Service{}, nil, "", 0, fmt.Errorf("konfigurasi Caddy invalid (Caddyfile disimpan di %s): %w", f.Name(), err)
 	}
 	manager := trust.NewTrustManager(caddy, storage, o.Root)
@@ -347,6 +396,8 @@ func waitReadinessOrExit(o ServeOptions, sup *Supervision) error {
 				return fmt.Errorf("runtime berhenti (%s): %w", e.Service, e.Err)
 			}
 			return fmt.Errorf("runtime berhenti (%s)", e.Service)
+		case <-sup.ctx.Done():
+			return nil
 		case <-deadline:
 			return fmt.Errorf("server Laravel belum siap pada %s:%d", o.Host, o.Port)
 		case <-ticker.C:
@@ -426,6 +477,35 @@ func serviceNames(services []Service) []string {
 		names[i] = s.Name
 	}
 	return names
+}
+
+// artisanDisplayNames menerjemahkan subcommand artisan ke nama produk yang
+// dikenal user (vocab acceptance: Laravel, Scheduler, Horizon, Pail).
+// Subcommand tak dikenal tetap memakai label teknisnya.
+var artisanDisplayNames = map[string]string{
+	"serve":         "Laravel",
+	"schedule:work": "Scheduler",
+	"horizon":       "Horizon",
+	"pail":          "Pail",
+}
+
+func serviceLabels(services []Service) []string {
+	labels := make([]string, len(services))
+	for i, service := range services {
+		labels[i] = service.Name
+		if len(service.Args) > 1 && service.Args[0] == "artisan" {
+			if display, ok := artisanDisplayNames[service.Args[1]]; ok {
+				labels[i] = display
+			} else {
+				labels[i] = service.Args[1]
+			}
+		} else if len(service.Args) > 0 && service.Name == "npm" {
+			labels[i] = "Vite"
+		} else if service.Name != "php" {
+			labels[i] = "Caddy"
+		}
+	}
+	return labels
 }
 
 func printServeIntro(o ServeOptions, domain string, virtual, https bool) {
