@@ -55,7 +55,9 @@ type ServeOptions struct {
 	ConfirmCaddyDownload func() (bool, error)
 	OutputMode           OutputMode
 
-	Out io.Writer
+	Out            io.Writer
+	OnReady        func([]string)
+	OnServiceState func(string, string)
 }
 
 // OutputMode mengatur verbositas output runtime.
@@ -155,7 +157,7 @@ func Serve(ctx context.Context, o ServeOptions) error {
 			services[i].Output = buffers[i]
 		}
 	}
-	sup, err := Start(ctx, StartOptions{Dir: o.Root, Port: o.Port, Services: services})
+	sup, err := Start(ctx, StartOptions{Dir: o.Root, Port: o.Port, Services: services, OnServiceState: o.OnServiceState})
 	if err != nil {
 		return err
 	}
@@ -193,6 +195,9 @@ func Serve(ctx context.Context, o ServeOptions) error {
 		_ = sup.Wait()
 		printExitTails(o.Out, o.OutputMode, services, buffers)
 		return err
+	}
+	if o.OnReady != nil {
+		o.OnReady(serviceLabels(services))
 	}
 	if virtual {
 		if https {
@@ -391,6 +396,8 @@ func waitReadinessOrExit(o ServeOptions, sup *Supervision) error {
 				return fmt.Errorf("runtime berhenti (%s): %w", e.Service, e.Err)
 			}
 			return fmt.Errorf("runtime berhenti (%s)", e.Service)
+		case <-sup.ctx.Done():
+			return nil
 		case <-deadline:
 			return fmt.Errorf("server Laravel belum siap pada %s:%d", o.Host, o.Port)
 		case <-ticker.C:
@@ -470,6 +477,35 @@ func serviceNames(services []Service) []string {
 		names[i] = s.Name
 	}
 	return names
+}
+
+// artisanDisplayNames menerjemahkan subcommand artisan ke nama produk yang
+// dikenal user (vocab acceptance: Laravel, Scheduler, Horizon, Pail).
+// Subcommand tak dikenal tetap memakai label teknisnya.
+var artisanDisplayNames = map[string]string{
+	"serve":         "Laravel",
+	"schedule:work": "Scheduler",
+	"horizon":       "Horizon",
+	"pail":          "Pail",
+}
+
+func serviceLabels(services []Service) []string {
+	labels := make([]string, len(services))
+	for i, service := range services {
+		labels[i] = service.Name
+		if len(service.Args) > 1 && service.Args[0] == "artisan" {
+			if display, ok := artisanDisplayNames[service.Args[1]]; ok {
+				labels[i] = display
+			} else {
+				labels[i] = service.Args[1]
+			}
+		} else if len(service.Args) > 0 && service.Name == "npm" {
+			labels[i] = "Vite"
+		} else if service.Name != "php" {
+			labels[i] = "Caddy"
+		}
+	}
+	return labels
 }
 
 func printServeIntro(o ServeOptions, domain string, virtual, https bool) {

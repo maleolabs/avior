@@ -26,6 +26,7 @@ var (
 	serveQueue         bool
 	serveScheduler     bool
 	serveOutput        string
+	serveTUI           bool
 )
 
 // serveCmd mengekspos runtime supervisor (dev: Laravel+Horizon+scheduler+
@@ -72,7 +73,7 @@ var serveCmd = &cobra.Command{
 		nonInteractive := !stdinInteractive(cmd.InOrStdin())
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer stop()
-		return runtime.Serve(ctx, runtime.ServeOptions{
+		options := runtime.ServeOptions{
 			Root:                flagRoot,
 			Mode:                m,
 			Host:                serveHost,
@@ -101,7 +102,21 @@ var serveCmd = &cobra.Command{
 			},
 			OutputMode: runtime.OutputMode(serveOutput),
 			Out:        cmd.OutOrStdout(),
-		})
+		}
+		if serveTUI {
+			if m != mode.ModeDevelopment {
+				return fmt.Errorf("--tui hanya tersedia untuk mode development")
+			}
+			if !stdinInteractive(cmd.InOrStdin()) || !stdoutInteractive(cmd.OutOrStdout()) {
+				return fmt.Errorf("--tui membutuhkan stdin dan stdout TTY; jalankan di terminal interaktif atau hapus --tui untuk output teks")
+			}
+			return runServeTUI(ctx, func(ctx context.Context, ready func([]string), state func(string, string)) error {
+				options.OnReady = ready
+				options.OnServiceState = state
+				return runtime.Serve(ctx, options)
+			}, cmd.InOrStdin(), cmd.OutOrStdout())
+		}
+		return runtime.Serve(ctx, options)
 	},
 }
 
@@ -121,4 +136,10 @@ func init() {
 	serveCmd.Flags().BoolVar(&serveQueue, "queue", false, "jalankan queue worker (otoritatif saat di-set)")
 	serveCmd.Flags().BoolVar(&serveScheduler, "scheduler", false, "jalankan scheduler (otoritatif saat di-set)")
 	serveCmd.Flags().StringVar(&serveOutput, "output", "concise", "output runtime: concise atau detail")
+	serveCmd.Flags().BoolVar(&serveTUI, "tui", false, "tampilkan status runtime live di terminal")
+}
+
+func stdoutInteractive(out any) bool {
+	f, ok := out.(*os.File)
+	return ok && isTTY(f)
 }
