@@ -47,6 +47,48 @@ jobs:
           cache: true
       - run: go test -tags e2e ./e2e/...
 
+  windows-launcher-e2e:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build local release staging and verify both launchers offline
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:GOPROXY = 'off'
+          $env:GOSUMDB = 'off'
+          $env:GOTOOLCHAIN = 'local'
+          go build -trimpath -buildvcs=false -o avior.exe .
+          New-Item -ItemType Directory -Force -Path staging/bin | Out-Null
+          New-Item -ItemType File -Force -Path staging/bin/caddy_windows_amd64.exe | Out-Null
+          Copy-Item avior.exe staging/avior.exe
+          Copy-Item release/setup.ps1, release/setup.bat staging/
+          $archive = Join-Path $env:RUNNER_TEMP 'avior-windows-e2e.zip'
+          bash release/package-windows.sh staging "$archive"
+          $extracted = Join-Path $env:RUNNER_TEMP 'avior-windows-e2e'
+          Expand-Archive -Path $archive -DestinationPath $extracted -Force
+          # Isi zip relatif terhadap stage dir: avior.exe ada di root arsip.
+          $launcher = $extracted
+          if (-not (Test-Path (Join-Path $launcher 'avior.exe'))) {
+            throw 'Archived avior.exe missing; refusing to test source-tree binary'
+          }
+          # PATH dibuang kecuali system32/WINDIR: satu-satunya cara launcher
+          # menemukan CLI adalah direktori arsipnya sendiri. 'Commands:' hanya
+          # ada di help asli CLI — error "not recognized" tidak memuatnya.
+          $env:PATH = "$env:WINDIR\System32;$env:WINDIR"
+          $psOutput = & (Join-Path $launcher 'setup.ps1') --help 2>&1 | Out-String
+          if ($LASTEXITCODE -ne 0 -or $psOutput -notmatch 'Commands:') {
+            throw "setup.ps1 failed or did not run archive binary (exit=$LASTEXITCODE): $psOutput"
+          }
+          $batOutput = & cmd.exe /d /c "`"$(Join-Path $launcher 'setup.bat')`" --help" 2>&1 | Out-String
+          if ($LASTEXITCODE -ne 0 -or $batOutput -notmatch 'Commands:') {
+            throw "setup.bat failed or did not run archive binary (exit=$LASTEXITCODE): $batOutput"
+          }
+
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: test
@@ -103,7 +145,7 @@ jobs:
             name="avior-${GITHUB_REF_NAME}-${os}-${arch}"
             if [[ ${os} == windows ]]; then
               cp release/setup.ps1 release/setup.bat "${stage}/"
-              (cd "${stage}" && zip -q "../../dist/${name}.zip" avior.exe bin/caddy_${os}_${arch}.exe setup.ps1 setup.bat)
+              bash release/package-windows.sh "${stage}" "dist/${name}.zip"
             else
               cp release/setup.sh "${stage}/"
               tar -czf "dist/${name}.tar.gz" -C "${stage}" avior bin setup.sh
