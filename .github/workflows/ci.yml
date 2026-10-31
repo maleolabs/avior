@@ -81,14 +81,18 @@ jobs:
           # menemukan CLI adalah direktori arsipnya sendiri. 'Commands:' hanya
           # ada di help asli CLI — error "not recognized" tidak memuatnya.
           $env:PATH = "$env:WINDIR\System32;$env:WINDIR"
+          Write-Host "=== restricted PATH: $env:PATH"
+          Write-Host "=== launcher dir: $launcher"
           $psOutput = & (Join-Path $launcher 'setup.ps1') --help 2>&1 | Out-String
           if ($LASTEXITCODE -ne 0 -or $psOutput -notmatch 'Commands:') {
             throw "setup.ps1 failed or did not run archive binary (exit=$LASTEXITCODE): $psOutput"
           }
+          Write-Host "=== setup.ps1 exit=$LASTEXITCODE, output:"; $psOutput
           $batOutput = & cmd.exe /d /c "`"$(Join-Path $launcher 'setup.bat')`" --help" 2>&1 | Out-String
           if ($LASTEXITCODE -ne 0 -or $batOutput -notmatch 'Commands:') {
             throw "setup.bat failed or did not run archive binary (exit=$LASTEXITCODE): $batOutput"
           }
+          Write-Host "=== setup.bat exit=$LASTEXITCODE, output:"; $batOutput
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
