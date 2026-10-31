@@ -7,8 +7,10 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -54,7 +56,12 @@ func FetchCaddy(ctx context.Context, destination string) error {
 		extractErr = extractTarGz(resp.Body, want, destination)
 	}
 	if extractErr != nil {
-		_ = os.Remove(destination)
+		// EEXIST berarti proses ini TIDAK menciptakan destination —
+		// first-run concurrent yang kalah tidak boleh menghapus binary
+		// terverifikasi milik yang menang. Hapus hanya file yang kita tulis.
+		if !errors.Is(extractErr, fs.ErrExist) {
+			_ = os.Remove(destination)
+		}
 		return extractErr
 	}
 	return verifyAndRecordInstall(destination)
@@ -128,6 +135,11 @@ func writeExtracted(r io.Reader, destination string, size int64) error {
 	}
 	f, err := os.OpenFile(destination, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
 	if err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			// First-run concurrent: proses lain sudah memasang binary —
+			// kembalikan error actionable tanpa menyentuh file existing.
+			return fmt.Errorf("install %s dibatalkan: Caddy sudah terpasang oleh proses lain: %w", destination, err)
+		}
 		return err
 	}
 	_, copyErr := io.CopyN(f, r, size)

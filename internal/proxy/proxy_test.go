@@ -266,6 +266,52 @@ func TestFetchCaddyRejectsPinMismatch(t *testing.T) {
 	}
 }
 
+// Race first-run concurrent (path EEXIST, deterministik tanpa goroutine):
+// destination sudah ada → proses kedua wajib gagal actionable "sudah
+// terpasang" TANPA menghapus binary existing milik proses pertama; manifest
+// juga tidak boleh ditulis dari file yang tidak di-create proses ini.
+func TestFetchCaddyEEXISTKeepsExistingBinary(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	oldPin := pinOverride
+	pin := sha256.Sum256([]byte("data"))
+	pinOverride = func(_, _ string) (string, bool) { return hex.EncodeToString(pin[:]), true }
+	defer func() { pinOverride = oldPin }()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gz := gzip.NewWriter(w)
+		tw := tar.NewWriter(gz)
+		_ = tw.WriteHeader(&tar.Header{Name: "caddy", Mode: 0755, Size: 4, Typeflag: tar.TypeReg})
+		_, _ = tw.Write([]byte("data"))
+		_ = tw.Close()
+		_ = gz.Close()
+	}))
+	defer server.Close()
+	old := urlOverride
+	urlOverride = func() string { return server.URL }
+	defer func() { urlOverride = old }()
+	dest := filepath.Join(t.TempDir(), "caddy")
+	// Simulasi binary terverifikasi milik "winner" yang datang lebih dulu.
+	winner := []byte("winner-verified-binary")
+	if err := os.WriteFile(dest, winner, 0755); err != nil {
+		t.Fatal(err)
+	}
+	err := FetchCaddy(context.Background(), dest)
+	if err == nil {
+		t.Fatal("EEXIST harus ditolak, bukan diam-diam menimpa")
+	}
+	if !strings.Contains(err.Error(), "sudah terpasang") {
+		t.Fatalf("pesan harus actionable: %v", err)
+	}
+	got, readErr := os.ReadFile(dest)
+	if readErr != nil || !bytes.Equal(got, winner) {
+		t.Fatalf("binary winner terhapus/berubah: content=%q err=%v", got, readErr)
+	}
+	if _, statErr := os.Stat(ManifestPath()); !os.IsNotExist(statErr) {
+		t.Fatal("manifest tidak boleh ditulis dari file yang tidak di-create proses ini")
+	}
+}
+
 // Tabel pin build-time harus diisi dan berformat sha256 hex 64 char untuk
 // seluruh target rilis; pin hilang = platform tersebut fail-closed saat
 // install (Kontrak B).
