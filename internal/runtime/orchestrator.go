@@ -74,6 +74,10 @@ type Supervision struct {
 	once   sync.Once
 	done   chan struct{}
 	result error
+
+	// reported[i]: status final child i sudah di-emit. Hanya goroutine
+	// supervise yang menulis — tanpa mutex.
+	reported []bool
 }
 
 type childExit struct {
@@ -100,6 +104,7 @@ func Start(ctx context.Context, o StartOptions) (*Supervision, error) {
 		raw:       make(chan childExit, len(o.Services)),
 		first:     make(chan Exit, 1),
 		done:      make(chan struct{}),
+		reported:  make([]bool, len(o.Services)),
 		statePath: statePath,
 	}
 	supervised := make([]*processgroup.Supervised, 0, len(o.Services))
@@ -148,11 +153,6 @@ func Start(ctx context.Context, o StartOptions) (*Supervision, error) {
 		}
 		go func(i int, sup *processgroup.Supervised) {
 			<-sup.Reaped()
-			status := "exited"
-			if err := sup.Wait(); err != nil && s.ctx.Err() == nil {
-				status = "failed"
-			}
-			s.setServiceState(serviceLabels([]Service{s.services[i]})[0], status)
 			s.raw <- childExit{index: i, sup: sup}
 		}(i, sup)
 		s.setServiceState(serviceLabels([]Service{svc})[0], "running")
@@ -172,12 +172,22 @@ func (s *Supervision) setServiceState(name, status string) {
 // semua), ctx.Done (Ctrl+C) memicu teardown graceful dengan hasil nil.
 func (s *Supervision) supervise(teardown func()) {
 	defer close(s.done)
-	defer teardown()
+	defer func() {
+		teardown()
+		// Emit status final SEMUA child yang sudah reaped di sini —
+		// deterministik sebelum done close (regresi QA flake: emit dari
+		// goroutine per-child bisa kalah race dengan close(done) sehingga
+		// status "exited" hilang). Child yang belum reaped (Terminate
+		// kehabisan grace+force) dilewati non-blocking — tanpa shutdown
+		// stall; perilaku lama juga tidak meng-emit untuk kasus itu.
+		s.emitFinalStates()
+	}()
 	select {
 	case <-s.ctx.Done():
 		s.result = nil
 	case e := <-s.raw:
 		err := e.sup.Wait()
+		s.reportState(e.index, err)
 		stopAll(s.sup)
 		first := Exit{Service: s.services[e.index].Name, Err: err}
 		// Fan-out non-blocking: cap 1 menjamin pengirim pertama selalu muat;
@@ -198,6 +208,33 @@ func (s *Supervision) supervise(teardown func()) {
 // (untuk race readiness vs child exit). Nilai tetap terbuffer bila tidak
 // ada pembaca; membaca lebih dari satu kali tidak menghasilkan apa-apa.
 func (s *Supervision) Exited() <-chan Exit { return s.first }
+
+// reportState meng-emit status final satu child ("exited", atau "failed"
+// bila exit dengan error saat runtime masih hidup) dan menandainya agar
+// tidak di-emit ganda. Dipanggil hanya dari goroutine supervise.
+func (s *Supervision) reportState(i int, err error) {
+	status := "exited"
+	if err != nil && s.ctx.Err() == nil {
+		status = "failed"
+	}
+	s.setServiceState(serviceLabels([]Service{s.services[i]})[0], status)
+	s.reported[i] = true
+}
+
+// emitFinalStates men-emit status final tiap child yang sudah reaped tapi
+// belum dilaporkan; non-blocking terhadap child yang belum reaped.
+func (s *Supervision) emitFinalStates() {
+	for i, sup := range s.sup {
+		if s.reported[i] {
+			continue
+		}
+		select {
+		case <-sup.Reaped():
+			s.reportState(i, sup.Wait())
+		default:
+		}
+	}
+}
 
 // Wait menunggu runtime berakhir: child pertama exit (error) atau ctx.Done
 // (nil). Idempoten.
