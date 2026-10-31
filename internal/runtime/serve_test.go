@@ -2,11 +2,14 @@ package runtime
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/maleolabs/avior/internal/mode"
+	"github.com/maleolabs/avior/internal/proxy"
 )
 
 func serveOpts(mutate func(*ServeOptions)) ServeOptions {
@@ -100,6 +103,130 @@ func TestServeWithoutVirtualDomainSkipsCaddy(t *testing.T) {
 	// Startup gagal cepat — bukan menunggu readiness timeout penuh.
 	if elapsed := time.Since(start); elapsed > readinessTimeout {
 		t.Fatalf("startup gagal terlalu lambat: %v", elapsed)
+	}
+}
+
+func TestPrepareCaddyRequiresConsentBeforeDownload(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	oldFetch := fetchManagedCaddy
+	defer func() { fetchManagedCaddy = oldFetch }()
+	fetched := false
+	fetchManagedCaddy = func(context.Context, string) error { fetched = true; return nil }
+	o := serveOpts(func(o *ServeOptions) { o.NonInteractive = true })
+	_, _, _, _, err := prepareCaddy(context.Background(), o, "app.localhost", false)
+	if err == nil || !contains(err.Error(), "consent") {
+		t.Fatalf("prepareCaddy error=%v, want consent gate", err)
+	}
+	if fetched {
+		t.Fatal("download attempted without consent")
+	}
+}
+
+func TestPrepareCaddyDeclinedConsentSkipsDownload(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	oldFetch := fetchManagedCaddy
+	defer func() { fetchManagedCaddy = oldFetch }()
+	fetched := false
+	fetchManagedCaddy = func(context.Context, string) error { fetched = true; return nil }
+	asked := 0
+	o := serveOpts(func(o *ServeOptions) {
+		o.ConfirmCaddyDownload = func() (bool, error) { asked++; return false, nil }
+	})
+	_, _, _, _, err := prepareCaddy(context.Background(), o, "app.localhost", false)
+	if err == nil || !contains(err.Error(), "dibatalkan") {
+		t.Fatalf("prepareCaddy error=%v, want declined download", err)
+	}
+	if asked != 1 || fetched {
+		t.Fatalf("consent asked=%d fetched=%v, want asked=1 fetched=false", asked, fetched)
+	}
+}
+
+func TestPrepareCaddyFirstRunUsesVerifiedManagedPath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	oldFetch, oldVerify, oldValidate := fetchManagedCaddy, verifyManagedCaddy, validateCaddyConfig
+	defer func() { fetchManagedCaddy, verifyManagedCaddy, validateCaddyConfig = oldFetch, oldVerify, oldValidate }()
+	destination := ""
+	verified := false
+	fetchManagedCaddy = func(_ context.Context, path string) error {
+		destination = path
+		return os.MkdirAll(filepath.Dir(path), 0700)
+	}
+	verifyManagedCaddy = func(path string) error {
+		if path != destination {
+			t.Fatalf("verify path=%q, downloaded=%q", path, destination)
+		}
+		verified = true
+		return nil
+	}
+	validateCaddyConfig = func(path, _ string) error {
+		if path != destination {
+			t.Fatalf("validate path=%q, downloaded=%q", path, destination)
+		}
+		return nil
+	}
+	o := serveOpts(func(o *ServeOptions) { o.AcceptCaddyDownload = true })
+	svc, _, config, _, err := prepareCaddy(context.Background(), o, "app.localhost", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(config)
+	if !verified || destination == "" || svc.Name != destination {
+		t.Fatalf("managed first-run not verified: verified=%v destination=%q service=%q", verified, destination, svc.Name)
+	}
+}
+
+func TestPrepareCaddyPromptAcceptDownloadsToManagedPath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	oldFetch, oldVerify, oldValidate := fetchManagedCaddy, verifyManagedCaddy, validateCaddyConfig
+	defer func() { fetchManagedCaddy, verifyManagedCaddy, validateCaddyConfig = oldFetch, oldVerify, oldValidate }()
+	destination := ""
+	fetchManagedCaddy = func(_ context.Context, path string) error {
+		destination = path
+		return os.MkdirAll(filepath.Dir(path), 0700)
+	}
+	verifyManagedCaddy = func(string) error { return nil }
+	validateCaddyConfig = func(string, string) error { return nil }
+	asked := 0
+	o := serveOpts(func(o *ServeOptions) {
+		o.ConfirmCaddyDownload = func() (bool, error) { asked++; return true, nil }
+	})
+	_, _, config, _, err := prepareCaddy(context.Background(), o, "app.localhost", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(config)
+	if asked != 1 {
+		t.Fatalf("consent asked=%d, want 1", asked)
+	}
+	if destination != proxy.ManagedCaddyPath() {
+		t.Fatalf("download destination=%q, want managed path %q", destination, proxy.ManagedCaddyPath())
+	}
+}
+
+func TestPrepareCaddyRejectsMissingPinBeforeDownload(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	oldFetch, oldPin := fetchManagedCaddy, caddyBinaryPin
+	defer func() { fetchManagedCaddy, caddyBinaryPin = oldFetch, oldPin }()
+	fetched := false
+	fetchManagedCaddy = func(context.Context, string) error { fetched = true; return nil }
+	caddyBinaryPin = func(string, string) (string, bool) { return "", false }
+	o := serveOpts(func(o *ServeOptions) { o.AcceptCaddyDownload = true })
+	_, _, _, _, err := prepareCaddy(context.Background(), o, "app.localhost", false)
+	if err == nil || !contains(err.Error(), "tambahkan pin di internal/proxy/pins.go") {
+		t.Fatalf("missing pin error=%v", err)
+	}
+	if fetched {
+		t.Fatal("download attempted without build-time pin")
 	}
 }
 

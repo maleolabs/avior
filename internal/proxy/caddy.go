@@ -17,9 +17,10 @@ import (
 // placeholder. Rilis terpaket meletakkan Caddy di samping CLI; instalasi
 // developer boleh memakai PATH.
 //
-// ponytail: layout kandidat masih mengikuti predecessor (tools/<name>/bin);
-// rapikan saat layer download/install Caddy terbentuk dan ManifestPath jadi
-// sumber kebenaran lokasi binary terkelola.
+// Kandidat: layout proyek/arsip (tools/<name>/bin), lokasi executable asli,
+// lalu binary terkelola hasil first-run di StateDir (ManagedCaddyPath), dan
+// terakhir PATH. Manifest StateDir adalah cache install, bukan root of trust —
+// verifikasi hash tetap lewat VerifyManaged/pin build-time.
 func CaddyPath(root string) (string, error) {
 	name := "caddy_" + runtime.GOOS + "_" + runtime.GOARCH
 	if runtime.GOOS == "windows" {
@@ -46,6 +47,10 @@ func CaddyPath(root string) (string, error) {
 			candidates = append(candidates, filepath.Join(dir, "bin", name), filepath.Join(dir, "dist", "bin", name), filepath.Join(dir, name))
 		}
 	}
+	// Binary hasil first-run download tinggal di StateDir. Ditaruh setelah
+	// kandidat proyek/arsip agar layout rilis tetap menang, tapi sebelum PATH
+	// supaya `trust` memakai binary terkelola (bukan caddy PATH acak).
+	candidates = append(candidates, ManagedCaddyPath())
 	seen := make(map[string]struct{}, len(candidates))
 	for _, p := range candidates {
 		p = filepath.Clean(p)
@@ -61,6 +66,15 @@ func CaddyPath(root string) (string, error) {
 		return p, nil
 	}
 	return "", fmt.Errorf("Caddy %s belum tersedia; pasang binary terverifikasi atau PATH caddy", CaddyVersion)
+}
+
+// ManagedCaddyPath is stable user-level install location used by first-run.
+func ManagedCaddyPath() string {
+	name := "caddy_" + runtime.GOOS + "_" + runtime.GOARCH
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	return filepath.Join(brand.StateDir(), "bin", name)
 }
 
 var localDomainPattern = regexp.MustCompile(`^(localhost|[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.(?:localhost|test))$`)
