@@ -95,7 +95,7 @@ func renderCommands(cmd *cobra.Command) string {
 		fmt.Fprintf(&b, "  %s%s  %s\n", name, pad, ui.DimText(descLines[0]))
 		indent := strings.Repeat(" ", width+4)
 		for _, dl := range descLines[1:] {
-			fmt.Fprintf(&b, "  %s%s\n", indent, ui.DimText(dl))
+			fmt.Fprintf(&b, "%s%s\n", indent, ui.DimText(dl))
 		}
 	}
 	return strings.TrimSuffix(b.String(), "\n")
