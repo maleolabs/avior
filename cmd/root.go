@@ -24,13 +24,10 @@ var (
 	flagYes    bool
 )
 
-const helpTemplate = `{{with .Long}}
-
-{{renderHelpText .}}{{end}}{{with .Example}}
+const helpTemplate = `{{with .Long}}{{renderHelpText .}}{{end}}{{with .Example}}
 
 {{styleDefault "Examples:"}}
 {{renderExamples .}}{{end}}{{if .HasAvailableSubCommands}}
-
 {{styleDefault "Commands:"}}
 {{renderCommands .}}{{end}}{{if .HasAvailableLocalFlags}}
 
@@ -193,8 +190,8 @@ var rootCmd = &cobra.Command{
 	Short: "",
 	Long:  "",
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Fprintln(cmd.OutOrStdout(), ui.Banner())
 		fmt.Fprintln(cmd.OutOrStdout())
+		fmt.Fprintln(cmd.OutOrStdout(), ui.Banner())
 		_ = cmd.Help()
 	},
 	PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
