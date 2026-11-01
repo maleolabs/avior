@@ -293,7 +293,7 @@ func TestLoadCorruptJSONError(t *testing.T) {
 	if exists {
 		t.Fatal("exists harus false untuk JSON korup")
 	}
-	if st != (RuntimeState{}) {
+	if st.ProjectRoot != "" || st.Port != 0 || st.MainPID.PID != 0 {
 		t.Fatalf("state harus zero value: %+v", st)
 	}
 	if err := SaveProcesses(procPath, nil); err != nil {

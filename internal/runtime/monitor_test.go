@@ -153,14 +153,21 @@ func TestStopRejectsProjectStateMismatch(t *testing.T) {
 	}
 }
 
-func TestMonitorRejectsStatePathProjectMismatch(t *testing.T) {
+// TestMonitorSkipsStatePathProjectMismatch: state file yang tidak cocok
+// dengan root-nya (legacy/corrupt) di-skip, bukan menggagalkan monitor
+// seluruhnya (perubahan Phase 1: monitor toleran terhadap entry rusak).
+func TestMonitorSkipsStatePathProjectMismatch(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	root := filepath.Join(t.TempDir(), "project")
 	if err := state.SaveState(mustStatePath(t, root), state.RuntimeState{ProjectRoot: filepath.Join(t.TempDir(), "other")}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Monitor(); err == nil || err.Error() != "runtime: project state mismatch" {
-		t.Fatalf("error = %v, want project mismatch", err)
+	statuses, err := Monitor()
+	if err != nil {
+		t.Fatalf("Monitor error = %v, want nil (entry rusak di-skip)", err)
+	}
+	if len(statuses) != 0 {
+		t.Fatalf("statuses = %d, want 0 (entry mismatch tidak boleh muncul)", len(statuses))
 	}
 }
 

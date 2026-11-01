@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/maleolabs/avior/internal/brand"
@@ -38,21 +39,23 @@ func Monitor() ([]ProjectStatus, error) {
 		path := filepath.Join(dir, name)
 		st, exists, err := state.LoadState(path)
 		if err != nil {
-			return nil, fmt.Errorf("runtime: monitor %s: %w", name, err)
+			// Toleran: skip entry rusak, jangan gagalkan seluruh monitor.
+			continue
 		}
 		if !exists || st.ProjectRoot == "" {
 			continue
 		}
 		projectStatePath, registry, err := state.Paths(st.ProjectRoot)
 		if err != nil {
-			return nil, err
+			continue
 		}
 		if filepath.Clean(projectStatePath) != filepath.Clean(path) {
-			return nil, fmt.Errorf("runtime: project state mismatch")
+			// State file tidak cocok dengan root-nya (legacy/corrupt): skip.
+			continue
 		}
 		services, _, err := state.LoadProcesses(registry)
 		if err != nil {
-			return nil, fmt.Errorf("runtime: monitor %s processes: %w", st.ProjectRoot, err)
+			services = nil
 		}
 		running := st.MainPID.PID > 0 && processgroup.ProcessAlive(st.MainPID)
 		statuses = append(statuses, ProjectStatus{ProjectRoot: st.ProjectRoot, Running: running, State: st, Services: services})
@@ -146,5 +149,10 @@ func waitForExitTimeout(pid state.Process, wait func(time.Duration), alive func(
 }
 
 func isRuntimeStateFile(name string) bool {
-	return len(name) == len("runtime-state-")+16+len(".json") && name[:len("runtime-state-")] == "runtime-state-" && filepath.Ext(name) == ".json"
+	if !strings.HasPrefix(name, "runtime-state-") || filepath.Ext(name) != ".json" {
+		return false
+	}
+	token := strings.TrimPrefix(name, "runtime-state-")
+	token = strings.TrimSuffix(token, ".json")
+	return len(token) == 16 || len(token) == 24
 }

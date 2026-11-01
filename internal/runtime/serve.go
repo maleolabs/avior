@@ -20,6 +20,7 @@ import (
 	"github.com/maleolabs/avior/internal/hostname"
 	"github.com/maleolabs/avior/internal/mode"
 	"github.com/maleolabs/avior/internal/proxy"
+	"github.com/maleolabs/avior/internal/state"
 	"github.com/maleolabs/avior/internal/trust"
 )
 
@@ -41,7 +42,9 @@ type ServeOptions struct {
 	Port                 int
 	VitePort             int
 	CaddyPort            int
+	CaddyAdminPort       int // Phase 3: dialokasikan unik per proyek; 0 = default 2019
 	Domain               string
+	ProjectName          string
 	VirtualDomain        bool
 	HTTPS                bool
 	TrustLocalCA         bool
@@ -72,7 +75,7 @@ const (
 const (
 	readinessTimeout = 10 * time.Second
 	tlsTimeout       = 10 * time.Second
-	adminPort        = 2019
+	adminPortConst   = 2019
 )
 
 // Serve menjalankan runtime terkoordinasi: validasi → plan → launch →
@@ -157,7 +160,24 @@ func Serve(ctx context.Context, o ServeOptions) error {
 			services[i].Output = buffers[i]
 		}
 	}
-	sup, err := Start(ctx, StartOptions{Dir: o.Root, Port: o.Port, Services: services, OnServiceState: o.OnServiceState})
+	adminPort := o.CaddyAdminPort
+	if adminPort == 0 {
+		adminPort = adminPortConst
+	}
+	projectName := o.ProjectName
+	if projectName == "" {
+		projectName = projectNameFromRoot(o.Root)
+	}
+	sup, err := Start(ctx, StartOptions{
+		Dir:            o.Root,
+		ProjectName:    projectName,
+		Port:           o.Port,
+		Domain:         domain,
+		CaddyAdminPort: adminPort,
+		Ports:          state.PortSet{App: o.Port, Vite: o.VitePort, Caddy: o.CaddyPort, CaddyAdmin: adminPort},
+		Services:       services,
+		OnServiceState: o.OnServiceState,
+	})
 	if err != nil {
 		return err
 	}
@@ -522,4 +542,15 @@ func printServeIntro(o ServeOptions, domain string, virtual, https bool) {
 	fmt.Fprintf(o.Out, "\n╭─ %s SERVE · %s\n", strings.ToUpper(brand.Name), o.Mode)
 	fmt.Fprintf(o.Out, "│  http://%s:%d\n", o.Host, o.Port)
 	fmt.Fprintln(o.Out, "╰─")
+}
+
+// projectNameFromRoot mengambil nama proyek dari basename root (fallback
+// nama direktori). Phase 2 akan membaca APP_NAME dari .env; basename cukup
+// untuk identitas monitor.
+func projectNameFromRoot(root string) string {
+	name := filepath.Base(filepath.Clean(root))
+	if name == "." || name == string(filepath.Separator) || name == "" {
+		return "project"
+	}
+	return name
 }

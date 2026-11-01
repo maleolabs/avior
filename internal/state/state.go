@@ -30,13 +30,40 @@ type Process struct {
 	StartedAt time.Time `json:"started_at"` // WAJIB diambil spawner saat spawn (sebelum SaveState), bukan saat save
 }
 
+// PortSet menyimpan alokasi port per proyek (Phase 3 allocator).
+type PortSet struct {
+	App        int `json:"app,omitempty"`
+	Vite       int `json:"vite,omitempty"`
+	Caddy      int `json:"caddy,omitempty"`
+	CaddyAdmin int `json:"caddy_admin,omitempty"`
+}
+
+// ServiceState menyimpan status satu service child (running/exited/failed).
+type ServiceState struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+}
+
+// StateVersion adalah versi skema RuntimeState saat ini.
+const StateVersion = 2
+
 // RuntimeState adalah metadata runtime satu proyek. Nilai nol (MainPID.PID
-// == 0) berarti tidak ada runtime berjalan.
+// == 0) berarti tidak ada runtime berjalan. Field dengan omitempty menjaga
+// kompatibilitas baca dengan state v1 (tanpa token/root/name/ports).
 type RuntimeState struct {
-	ProjectRoot string    `json:"project_root"`
-	Port        int       `json:"port,omitempty"`
-	MainPID     Process   `json:"main_pid"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	Version        int            `json:"version,omitempty"`
+	ProjectToken   string         `json:"project_token,omitempty"`
+	ProjectRoot    string         `json:"project_root"`
+	ProjectName    string         `json:"project_name,omitempty"`
+	Domain         string         `json:"domain,omitempty"`
+	Ports          PortSet        `json:"ports,omitempty"`
+	Port           int            `json:"port,omitempty"` // legacy compat (Laravel port)
+	CaddyAdminPort int            `json:"caddy_admin_port,omitempty"`
+	MainPID        Process        `json:"main_pid"`
+	StartedAt      time.Time      `json:"started_at,omitempty"`
+	UpdatedAt      time.Time      `json:"updated_at"`
+	Heartbeat      time.Time      `json:"heartbeat,omitempty"`
+	Services       []ServiceState `json:"services,omitempty"`
 }
 
 var stateMu sync.Mutex
@@ -60,7 +87,7 @@ func Paths(projectRoot string) (statePath, processesPath string, err error) {
 		}
 	}
 	sum := sha256.Sum256([]byte(abs))
-	token := hex.EncodeToString(sum[:8]) // ponytail: token 64-bit (16 hex) cukup unik antar checkout; naik ke 32 hex jika tabrakan nyata
+	token := hex.EncodeToString(sum[:12]) // 96-bit (24 hex): collision-safe antar project
 	dir := brand.StateDir()
 	return filepath.Join(dir, "runtime-state-"+token+".json"),
 		filepath.Join(dir, "runtime-processes-"+token+".json"), nil
@@ -96,7 +123,21 @@ func SaveState(statePath string, st RuntimeState) error {
 		return fmt.Errorf("state: lock: %w", err)
 	}
 	defer unlock()
-	st.UpdatedAt = time.Now().UTC()
+	if st.Version == 0 {
+		st.Version = StateVersion
+	}
+	now := time.Now().UTC()
+	if st.UpdatedAt.IsZero() {
+		st.UpdatedAt = now
+	} else {
+		st.UpdatedAt = now
+	}
+	if st.Heartbeat.IsZero() {
+		st.Heartbeat = now
+	}
+	if st.StartedAt.IsZero() && st.MainPID.StartedAt.IsZero() == false {
+		st.StartedAt = st.MainPID.StartedAt
+	}
 	data, err := json.MarshalIndent(st, "", "  ")
 	if err != nil {
 		return fmt.Errorf("state: encode: %w", err)

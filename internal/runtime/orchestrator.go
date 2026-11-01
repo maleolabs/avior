@@ -10,10 +10,13 @@ package runtime
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log"
 	"os/exec"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -42,7 +45,11 @@ const (
 // state proyek sehingga monitor/attach bisa menampilkannya.
 type StartOptions struct {
 	Dir            string
+	ProjectName    string
 	Port           int
+	Domain         string
+	Ports          state.PortSet
+	CaddyAdminPort int
 	Services       []Service
 	OnServiceState func(name, status string)
 }
@@ -145,7 +152,23 @@ func Start(ctx context.Context, o StartOptions) (*Supervision, error) {
 		s.unreg = append(s.unreg, remove)
 		if i == 0 {
 			s.stateOwn = sup.Identity()
-			if err := state.SaveState(statePath, state.RuntimeState{ProjectRoot: o.Dir, Port: o.Port, MainPID: s.stateOwn}); err != nil {
+			token := ""
+			if abs, aerr := filepath.Abs(o.Dir); aerr == nil {
+				sum := sha256.Sum256([]byte(abs))
+				token = hex.EncodeToString(sum[:12])
+			}
+			if err := state.SaveState(statePath, state.RuntimeState{
+				Version:        state.StateVersion,
+				ProjectToken:   token,
+				ProjectRoot:    o.Dir,
+				ProjectName:    o.ProjectName,
+				Domain:         o.Domain,
+				Port:           o.Port,
+				Ports:          o.Ports,
+				CaddyAdminPort: o.CaddyAdminPort,
+				MainPID:        s.stateOwn,
+				StartedAt:      s.stateOwn.StartedAt,
+			}); err != nil {
 				teardown()
 				cancel()
 				return nil, fmt.Errorf("runtime: save state: %w", err)
