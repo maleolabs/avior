@@ -24,7 +24,7 @@ func Banner() string {
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")
-	b.WriteString(DimText("Setup & runtime universal untuk proyek Laravel"))
+	b.WriteString(DefaultText("Setup & runtime universal untuk proyek Laravel"))
 	b.WriteString("\n")
 	b.WriteString(DimText("By MaleoLabs"))
 	return strings.TrimRight(b.String(), "\n")

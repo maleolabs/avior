@@ -28,10 +28,10 @@ const helpTemplate = `{{with .Long}}{{renderHelpText .}}{{end}}{{with .Example}}
 
 {{styleDefault "Examples:"}}
 {{renderExamples .}}{{end}}{{if .HasAvailableSubCommands}}
-{{styleDefault "Commands:"}}
+{{stylePrimary "Commands:"}}
 {{renderCommands .}}{{end}}{{if .HasAvailableLocalFlags}}
 
-{{styleDefault "Flags:"}}
+{{stylePrimary "Flags:"}}
 {{renderFlags .}}{{end}}
 
 `
@@ -89,10 +89,10 @@ func renderCommands(cmd *cobra.Command) string {
 		if len(descLines) == 0 {
 			descLines = []string{""}
 		}
-		fmt.Fprintf(&b, "  %s%s  %s\n", name, pad, ui.DimText(descLines[0]))
+		fmt.Fprintf(&b, "  %s%s  %s\n", name, pad, ui.DefaultText(descLines[0]))
 		indent := strings.Repeat(" ", width+4)
 		for _, dl := range descLines[1:] {
-			fmt.Fprintf(&b, "%s%s\n", indent, ui.DimText(dl))
+			fmt.Fprintf(&b, "%s%s\n", indent, ui.DefaultText(dl))
 		}
 	}
 	return strings.TrimSuffix(b.String(), "\n")
