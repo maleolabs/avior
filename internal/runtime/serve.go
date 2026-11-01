@@ -514,8 +514,12 @@ func printServeIntro(o ServeOptions, domain string, virtual, https bool) {
 		if https {
 			scheme = "https"
 		}
-		fmt.Fprintf(o.Out, "\n╭─ %s SERVE · %s\n│  %s://%s:%d → 127.0.0.1:%d\n╰─\n", strings.ToUpper(brand.Name), o.Mode, scheme, domain, o.CaddyPort, o.Port)
+		fmt.Fprintf(o.Out, "\n╭─ %s SERVE · %s\n", strings.ToUpper(brand.Name), o.Mode)
+		fmt.Fprintf(o.Out, "│  %s://%s:%d → 127.0.0.1:%d\n", scheme, domain, o.CaddyPort, o.Port)
+		fmt.Fprintln(o.Out, "╰─")
 		return
 	}
-	fmt.Fprintf(o.Out, "\n╭─ %s SERVE · %s\n│  http://%s:%d\n╰─\n", strings.ToUpper(brand.Name), o.Mode, o.Host, o.Port)
+	fmt.Fprintf(o.Out, "\n╭─ %s SERVE · %s\n", strings.ToUpper(brand.Name), o.Mode)
+	fmt.Fprintf(o.Out, "│  http://%s:%d\n", o.Host, o.Port)
+	fmt.Fprintln(o.Out, "╰─")
 }

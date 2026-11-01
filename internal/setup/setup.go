@@ -135,7 +135,10 @@ func Run(o Options) error {
 	fmt.Fprintf(o.Out, "│  Mode: %s\n", o.Mode)
 	fmt.Fprintln(o.Out, "╰─")
 	for i, s := range steps {
-		fmt.Fprintf(o.Out, "  [%d/%d] %-20s %s\n", i+1, len(steps), s.Name, s.Desc)
+		fmt.Fprintf(o.Out, "  [%d/%d] %-20s\n", i+1, len(steps), s.Name)
+		for _, dl := range ui.Wrap(s.Desc, ui.TermWidth()-28) {
+			fmt.Fprintf(o.Out, "        %s\n", dl)
+		}
 		if o.Dry && s.Mutating {
 			fmt.Fprintln(o.Out, "        └─ [dry-run] dilewati")
 			continue
