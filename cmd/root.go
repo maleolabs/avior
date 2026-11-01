@@ -107,22 +107,49 @@ func renderCommands(cmd *cobra.Command) string {
 func renderFlags(cmd *cobra.Command) string {
 	lines := strings.Split(strings.TrimSuffix(cmd.Flags().FlagUsages(), "\n"), "\n")
 	termW := ui.TermWidth()
+	// cari kolom deskripsi bersama (cobra menyelaraskan)
+	maxDesc := 0
+	for _, line := range lines {
+		if !strings.HasPrefix(line, "  ") || strings.TrimSpace(line) == "" {
+			continue
+		}
+		j := len(line) - 1
+		descStart := -1
+		for j >= 2 {
+			if line[j] != ' ' {
+				j--
+				continue
+			}
+			k := j
+			for k >= 2 && line[k] == ' ' {
+				k--
+			}
+			if j-k >= 2 {
+				descStart = k + 1
+				break
+			}
+			j = k
+		}
+		if descStart > maxDesc {
+			maxDesc = descStart
+		}
+	}
+	if maxDesc == 0 {
+		maxDesc = 2
+	}
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" || !strings.HasPrefix(line, "  ") {
 			lines[i] = ui.DimText(line)
 			continue
 		}
-		// Cobra menyelaraskan deskripsi pada kolom tetap: cari run
-		// spasi terakhir (>=2) yang memisahkan flag dari deskripsi.
-		descStart := -1
 		j := len(line) - 1
+		descStart := -1
 		for j >= 2 {
 			if line[j] != ' ' {
 				j--
 				continue
 			}
-			// hitung run spasi ke kiri
 			k := j
 			for k >= 2 && line[k] == ' ' {
 				k--
@@ -143,7 +170,7 @@ func renderFlags(cmd *cobra.Command) string {
 			lines[i] = ui.InfoText(flagPart)
 			continue
 		}
-		descW := termW - descStart
+		descW := termW - maxDesc
 		if descW < 20 {
 			descW = 20
 		}
@@ -151,8 +178,8 @@ func renderFlags(cmd *cobra.Command) string {
 		if len(wrapped) == 0 {
 			wrapped = []string{""}
 		}
-		out := ui.InfoText(flagPart) + "  " + ui.DimText(wrapped[0])
-		indent := strings.Repeat(" ", descStart)
+		out := ui.InfoText(flagPart) + strings.Repeat(" ", maxDesc-len(flagPart)) + "  " + ui.DimText(wrapped[0])
+		indent := strings.Repeat(" ", maxDesc+2)
 		for _, w := range wrapped[1:] {
 			out += "\n" + indent + ui.DimText(w)
 		}
