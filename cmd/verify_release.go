@@ -42,7 +42,7 @@ var verifyReleaseCmd = &cobra.Command{
 		}
 		out := cmd.OutOrStdout()
 		for _, issue := range issues {
-			fmt.Fprintln(out, issue)
+			fmt.Fprintln(out, ui.DangerText(issue))
 		}
 		if len(issues) > 0 {
 			return ui.NewReportedError(

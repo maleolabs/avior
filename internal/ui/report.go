@@ -54,7 +54,7 @@ func RenderError(w io.Writer, err error) {
 func ErrorCard(w io.Writer, message string) {
 	fmt.Fprint(w, DangerText("╭─ Error")+"\n")
 	for _, line := range strings.Split(strings.TrimRight(message, "\n"), "\n") {
-		fmt.Fprintf(w, "│ %s\n", DangerText(line))
+		fmt.Fprint(w, DangerText("│ ")+DangerText(line)+"\n")
 	}
 	fmt.Fprint(w, DimText("│ Periksa detail langkah di atas lalu coba lagi.")+"\n")
 	fmt.Fprint(w, DimText("╰─")+"\n")

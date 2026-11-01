@@ -8,6 +8,7 @@ import (
 	"github.com/maleolabs/avior/internal/brand"
 	"github.com/maleolabs/avior/internal/detect"
 	"github.com/maleolabs/avior/internal/mode"
+	"github.com/maleolabs/avior/internal/ui"
 )
 
 type Report struct {
@@ -37,9 +38,9 @@ func Write(w io.Writer, report Report, asJSON bool) error {
 		return err
 	}
 	for _, check := range report.Checks {
-		mark := "✓ READY"
+		mark := ui.SuccessText("✓ READY")
 		if !check.OK {
-			mark = "✗ MISSING"
+			mark = ui.DangerText("✗ MISSING")
 		}
 		if _, err := fmt.Fprintf(w, "  %-24s %-10s %s\n", check.Name, mark, check.Detail); err != nil {
 			return err

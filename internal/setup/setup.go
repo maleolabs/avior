@@ -443,7 +443,7 @@ func (r *run) ensureDatabaseConfig() error {
 				value = "pgsql"
 			}
 			if value != "mysql" && value != "mariadb" && value != "pgsql" && value != "sqlite" {
-				fmt.Fprintln(r.o.Out, "  │  Pilihan tidak valid.")
+				fmt.Fprintln(r.o.Out, "  │  "+ui.DangerText("Pilihan tidak valid."))
 				continue
 			}
 			if err := r.setEnv("DB_CONNECTION", value); err != nil {
