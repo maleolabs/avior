@@ -46,7 +46,7 @@ func (r Runner) RunLabel(label, name string, args ...string) error {
 	label = sanitizeText(label)
 	fmt.Fprintf(r.Out, "  ▸ %s\n", label)
 	if r.DryRun {
-		fmt.Fprintf(r.Out, "  ✓ %s [dry-run]\n", label)
+		fmt.Fprintf(r.Out, "  %s %s [dry-run]\n", ui.SuccessText("✓"), label)
 		return nil
 	}
 	name, args = windowsCommand(name, args)
@@ -56,7 +56,7 @@ func (r Runner) RunLabel(label, name string, args ...string) error {
 	var output bytes.Buffer
 	c.Stdout, c.Stderr = &output, &output
 	if err := c.Run(); err != nil {
-		fmt.Fprintf(r.Out, "  ✗ %s\n", label)
+		fmt.Fprintf(r.Out, "  %s %s\n", ui.DangerText("✗"), label)
 		detail := truncateOutput(output.String(), 4096)
 		message := "Langkah gagal: " + label
 		message += fmt.Sprintf("\nRuntime: cwd=%s, executable=%s", r.Root, executablePath(name))
@@ -66,7 +66,7 @@ func (r Runner) RunLabel(label, name string, args ...string) error {
 		ui.ErrorCard(r.ErrOut, message)
 		return ui.NewReportedError(fmt.Errorf("%w: %s", err, message), message)
 	}
-	fmt.Fprintf(r.Out, "  ✓ %s\n", label)
+	fmt.Fprintf(r.Out, "  %s %s\n", ui.SuccessText("✓"), label)
 	return nil
 }
 
