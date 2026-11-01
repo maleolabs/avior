@@ -105,8 +105,6 @@ func renderCommands(cmd *cobra.Command) string {
 // men-style hanya kolom flag. Men-style seluruh output FlagUsages membuat
 // nama dan default tidak terbaca sebagai teks redup.
 func renderFlags(cmd *cobra.Command) string {
-	// Flags() mencakup local flags dan persistent global flags yang
-	// di-inherit, sehingga help subcommand memuat opsi global yang sama.
 	lines := strings.Split(strings.TrimSuffix(cmd.Flags().FlagUsages(), "\n"), "\n")
 	termW := ui.TermWidth()
 	for i, line := range lines {
@@ -115,21 +113,37 @@ func renderFlags(cmd *cobra.Command) string {
 			lines[i] = ui.DimText(line)
 			continue
 		}
-		separator := strings.Index(line[2:], "  ")
-		if separator < 0 {
+		// Cobra menyelaraskan deskripsi pada kolom tetap: cari run
+		// spasi terakhir (>=2) yang memisahkan flag dari deskripsi.
+		descStart := -1
+		j := len(line) - 1
+		for j >= 2 {
+			if line[j] != ' ' {
+				j--
+				continue
+			}
+			// hitung run spasi ke kiri
+			k := j
+			for k >= 2 && line[k] == ' ' {
+				k--
+			}
+			if j-k >= 2 {
+				descStart = k + 1
+				break
+			}
+			j = k
+		}
+		if descStart < 0 {
 			lines[i] = ui.InfoText(strings.TrimRight(line, " "))
 			continue
 		}
-		separator += 2
-		flagPart := line[:separator]
-		desc := strings.TrimSpace(line[separator:])
+		flagPart := strings.TrimRight(line[:descStart], " ")
+		desc := strings.TrimSpace(line[descStart:])
 		if desc == "" {
-			lines[i] = ui.InfoText(strings.TrimRight(line, " "))
+			lines[i] = ui.InfoText(flagPart)
 			continue
 		}
-		// lebar kolom flag fixed; deskripsi dibungkus agar tidak memulai
-		// baris baru dari awal kolom.
-		descW := termW - separator - 2
+		descW := termW - descStart
 		if descW < 20 {
 			descW = 20
 		}
@@ -137,10 +151,10 @@ func renderFlags(cmd *cobra.Command) string {
 		if len(wrapped) == 0 {
 			wrapped = []string{""}
 		}
-		pad := strings.Repeat(" ", separator)
-		out := ui.InfoText(flagPart) + ui.DimText(wrapped[0])
+		out := ui.InfoText(flagPart) + "  " + ui.DimText(wrapped[0])
+		indent := strings.Repeat(" ", descStart)
 		for _, w := range wrapped[1:] {
-			out += "\n" + pad + ui.DimText(w)
+			out += "\n" + indent + ui.DimText(w)
 		}
 		lines[i] = out
 	}
