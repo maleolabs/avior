@@ -52,10 +52,23 @@ func RenderError(w io.Writer, err error) {
 // footer petunjuk tetap Dim. Warna otomatis non-aktif di non-TTY (NO_COLOR),
 // sehingga output pipe tetap polosa.
 func ErrorCard(w io.Writer, message string) {
-	fmt.Fprint(w, DangerText("╭─ Error")+"\n")
-	for _, line := range strings.Split(strings.TrimRight(message, "\n"), "\n") {
-		fmt.Fprint(w, DangerText("│ ")+DangerText(line)+"\n")
+	red, dim, reset := "", "", ""
+	if Enabled() {
+		red, dim, reset = "\x1b[91m", "\x1b[90m", "\x1b[0m"
 	}
-	fmt.Fprint(w, DimText("│ Periksa detail langkah di atas lalu coba lagi.")+"\n")
-	fmt.Fprint(w, DimText("╰─")+"\n")
+	width := TermWidth()
+	textWidth := width - 4
+	if textWidth < 20 {
+		textWidth = 20
+	}
+	fmt.Fprintf(w, "%s╭─ Error%s\n", red, reset)
+	for _, raw := range strings.Split(strings.TrimRight(message, "\n"), "\n") {
+		for _, line := range Wrap(raw, textWidth) {
+			fmt.Fprintf(w, "%s│%s %s%s\n", red, reset, DangerText(line), reset)
+		}
+	}
+	for _, line := range Wrap("Periksa detail langkah di atas lalu coba lagi.", textWidth) {
+		fmt.Fprintf(w, "%s│%s %s%s\n", red, reset, dim+line, reset)
+	}
+	fmt.Fprintf(w, "%s╰─%s\n", red, reset)
 }

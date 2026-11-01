@@ -77,3 +77,51 @@ func Strip(s string) string {
 		"\x1b[96m", "", "\x1b[90m", "", "\x1b[97m", "", "\x1b[0m", "",
 	).Replace(s)
 }
+
+// Wrap memecah text menjadi beberapa baris dengan lebar maksimum width
+// (karakter, bukan byte) — untuk output yang tidak boleh melebihi lebar
+// terminal. Kata dipotong hanya bila lebih panjang dari width.
+func Wrap(text string, width int) []string {
+	if width <= 0 {
+		width = 80
+	}
+	var out []string
+	for _, para := range strings.Split(text, "\n") {
+		if para == "" {
+			out = append(out, "")
+			continue
+		}
+		words := strings.Fields(para)
+		line := ""
+		for _, w := range words {
+			if line == "" {
+				line = w
+				continue
+			}
+			if len(line)+1+len(w) <= width {
+				line += " " + w
+			} else {
+				out = append(out, line)
+				line = w
+			}
+		}
+		if line != "" {
+			out = append(out, line)
+		}
+	}
+	if len(out) == 0 {
+		out = append(out, "")
+	}
+	return out
+}
+
+// Truncate memotong text agar muat dalam width, menambahkan "…" bila dipotong.
+func Truncate(text string, width int) string {
+	if width <= 0 || len(text) <= width {
+		return text
+	}
+	if width <= 1 {
+		return "…"
+	}
+	return text[:width-1] + "…"
+}

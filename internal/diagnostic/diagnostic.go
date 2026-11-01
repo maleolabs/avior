@@ -34,15 +34,23 @@ func Write(w io.Writer, report Report, asJSON bool) error {
 	if asJSON {
 		return json.NewEncoder(w).Encode(report)
 	}
+	width := ui.TermWidth()
 	if _, err := fmt.Fprintf(w, "\n╭─ %s · %s\n╰─\n", brand.Name, report.Mode); err != nil {
 		return err
+	}
+	nameW := 24
+	markW := 10
+	detailW := width - nameW - markW - 6
+	if detailW < 20 {
+		detailW = 20
 	}
 	for _, check := range report.Checks {
 		mark := ui.SuccessText("✓ READY")
 		if !check.OK {
 			mark = ui.DangerText("✗ MISSING")
 		}
-		if _, err := fmt.Fprintf(w, "  %-24s %-10s %s\n", check.Name, mark, check.Detail); err != nil {
+		detail := ui.Truncate(check.Detail, detailW)
+		if _, err := fmt.Fprintf(w, "  %-*s %-*s %s\n", nameW, ui.Truncate(check.Name, nameW), markW, mark, detail); err != nil {
 			return err
 		}
 	}

@@ -58,12 +58,17 @@ func ArchiveIntro(w io.Writer, root, output, mode string, dryRun bool) {
 	if dryRun {
 		status = " · dry-run"
 	}
+	width := TermWidth()
+	textWidth := width - 6
+	if textWidth < 30 {
+		textWidth = 30
+	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "\n%s\n", PrimaryText("╭─ Archive plan"))
 	fmt.Fprintf(&b, "%s\n", PrimaryText("│ ")+InfoText("Create curated project distributions"+status))
-	fmt.Fprintf(&b, "%s\n", PrimaryText("│ ")+DimText("Mode   ")+DefaultText(modeName))
-	fmt.Fprintf(&b, "%s\n", PrimaryText("│ ")+DimText("Root   ")+DefaultText(root))
-	fmt.Fprintf(&b, "%s\n", PrimaryText("│ ")+DimText("Output ")+DefaultText(output))
+	fmt.Fprintf(&b, "%s\n", PrimaryText("│ ")+DimText("Mode   ")+DefaultText(Truncate(modeName, textWidth-8)))
+	fmt.Fprintf(&b, "%s\n", PrimaryText("│ ")+DimText("Root   ")+DefaultText(Truncate(root, textWidth-8)))
+	fmt.Fprintf(&b, "%s\n", PrimaryText("│ ")+DimText("Output ")+DefaultText(Truncate(output, textWidth-8)))
 	fmt.Fprintf(&b, "%s\n", PrimaryText("│ ")+DimText("Formats ")+DefaultText("tar.gz + zip"))
 	fmt.Fprintf(&b, "%s\n", PrimaryText("╰─"))
 	_, _ = fmt.Fprint(w, b.String())
