@@ -191,6 +191,12 @@ func renderFlags(cmd *cobra.Command) string {
 var rootCmd = &cobra.Command{
 	Use:   brand.Name,
 	Short: "Setup & runtime universal untuk proyek Laravel",
+	Long:  "",
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Fprintln(cmd.OutOrStdout(), ui.Banner())
+		fmt.Fprintln(cmd.OutOrStdout())
+		_ = cmd.Help()
+	},
 	PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
 		// Perintah read-only lintas direktori (monitor) tidak butuh root.
 		if rootless[cmd.Name()] {
