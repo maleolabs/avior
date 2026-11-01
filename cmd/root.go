@@ -24,7 +24,7 @@ var (
 	flagYes    bool
 )
 
-const helpTemplate = `{{stylePrimary .CommandPath}}{{with .Short}} — {{styleDim .}}{{end}}{{with .Long}}
+const helpTemplate = `{{with .Long}}
 
 {{renderHelpText .}}{{end}}{{with .Example}}
 
