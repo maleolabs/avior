@@ -11,6 +11,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/maleolabs/avior/internal/brand"
+	"github.com/maleolabs/avior/internal/ui"
 )
 
 const (
@@ -168,7 +169,7 @@ func (m serveTUIModel) View() string {
 		view += fmt.Sprintf("● %s: %s\n", service, strings.ToUpper(state))
 	}
 	if m.err != nil {
-		view += fmt.Sprintf("\nError: %s\n", m.err)
+		view += fmt.Sprintf("\n%s %s\n", ui.DangerText("Error:"), m.err)
 	}
 	view += fmt.Sprintf("Elapsed: %s\n\n", elapsed.Round(time.Second))
 	if m.status == "STOPPED" {

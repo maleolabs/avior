@@ -19,6 +19,7 @@ import (
 	"github.com/maleolabs/avior/internal/detect"
 	"github.com/maleolabs/avior/internal/env"
 	"github.com/maleolabs/avior/internal/mode"
+	"github.com/maleolabs/avior/internal/ui"
 )
 
 // Runner menjalankan subprocess argumen-list. Sengaja kecil agar sequencing
@@ -542,7 +543,7 @@ func (r *run) validateEnv() error {
 			return nil
 		}
 		if err := env.Validate(r.values, r.o.Mode); err != nil {
-			fmt.Fprintf(r.o.Out, "        └─ validasi: GAGAL — %v\n", err)
+			fmt.Fprintf(r.o.Out, "        └─ validasi: %s — %v\n", ui.DangerText("GAGAL"), err)
 			return nil
 		}
 		fmt.Fprintln(r.o.Out, "        └─ validasi: OK")

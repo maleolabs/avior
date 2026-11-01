@@ -47,13 +47,15 @@ func RenderError(w io.Writer, err error) {
 }
 
 // ErrorCard menulis kartu error bentuk legacy codebase pendahulu — setiap baris pesan
-// di-frame independen (penting untuk pesan validasi multi-blok).
-// ponytail: warna/ANSI ditunda sampai layer style (tanpa golang.org/x/term)
-// ada; kartu polosa ini sudah aman untuk buffer & pipe.
+// di-frame independen (penting untuk pesan validasi multi-blok). Header + isi
+// pesan ditulis dengan warna Danger agar error langsung terbaca sebagai bahaya;
+// footer petunjuk tetap Dim. Warna otomatis non-aktif di non-TTY (NO_COLOR),
+// sehingga output pipe tetap polosa.
 func ErrorCard(w io.Writer, message string) {
-	fmt.Fprint(w, "\n╭─ Error\n")
+	fmt.Fprint(w, DangerText("╭─ Error")+"\n")
 	for _, line := range strings.Split(strings.TrimRight(message, "\n"), "\n") {
-		fmt.Fprintf(w, "│ %s\n", line)
+		fmt.Fprintf(w, "│ %s\n", DangerText(line))
 	}
-	fmt.Fprint(w, "│ Periksa detail langkah di atas lalu coba lagi.\n╰─\n")
+	fmt.Fprint(w, DimText("│ Periksa detail langkah di atas lalu coba lagi.")+"\n")
+	fmt.Fprint(w, DimText("╰─")+"\n")
 }
