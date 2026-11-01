@@ -79,9 +79,24 @@ func renderCommands(cmd *cobra.Command) string {
 			}
 		}
 	}
+	termW := ui.TermWidth()
+	descW := termW - width - 6
+	if descW < 20 {
+		descW = 20
+	}
 	var b strings.Builder
 	for _, child := range available {
-		fmt.Fprintf(&b, "  %s%s  %s\n", ui.InfoText(child.Name()), strings.Repeat(" ", width-len(child.Name())), ui.DimText(child.Short))
+		name := ui.InfoText(child.Name())
+		pad := strings.Repeat(" ", width-len(child.Name()))
+		descLines := ui.Wrap(child.Short, descW)
+		if len(descLines) == 0 {
+			descLines = []string{""}
+		}
+		fmt.Fprintf(&b, "  %s%s  %s\n", name, pad, ui.DimText(descLines[0]))
+		indent := strings.Repeat(" ", width+4)
+		for _, dl := range descLines[1:] {
+			fmt.Fprintf(&b, "  %s%s\n", indent, ui.DimText(dl))
+		}
 	}
 	return strings.TrimSuffix(b.String(), "\n")
 }
@@ -93,6 +108,7 @@ func renderFlags(cmd *cobra.Command) string {
 	// Flags() mencakup local flags dan persistent global flags yang
 	// di-inherit, sehingga help subcommand memuat opsi global yang sama.
 	lines := strings.Split(strings.TrimSuffix(cmd.Flags().FlagUsages(), "\n"), "\n")
+	termW := ui.TermWidth()
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" || !strings.HasPrefix(line, "  ") {
@@ -105,7 +121,28 @@ func renderFlags(cmd *cobra.Command) string {
 			continue
 		}
 		separator += 2
-		lines[i] = ui.InfoText(line[:separator]) + ui.DimText(strings.TrimRight(line[separator:], " "))
+		flagPart := line[:separator]
+		desc := strings.TrimSpace(line[separator:])
+		if desc == "" {
+			lines[i] = ui.InfoText(strings.TrimRight(line, " "))
+			continue
+		}
+		// lebar kolom flag fixed; deskripsi dibungkus agar tidak memulai
+		// baris baru dari awal kolom.
+		descW := termW - separator - 2
+		if descW < 20 {
+			descW = 20
+		}
+		wrapped := ui.Wrap(desc, descW)
+		if len(wrapped) == 0 {
+			wrapped = []string{""}
+		}
+		pad := strings.Repeat(" ", separator)
+		out := ui.InfoText(flagPart) + ui.DimText(wrapped[0])
+		for _, w := range wrapped[1:] {
+			out += "\n" + pad + ui.DimText(w)
+		}
+		lines[i] = out
 	}
 	return strings.Join(lines, "\n")
 }
