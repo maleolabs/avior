@@ -24,7 +24,7 @@ var (
 	flagYes    bool
 )
 
-const helpTemplate = `{{stylePrimary .CommandPath}} — {{styleDim .Short}}{{with .Long}}
+const helpTemplate = `{{stylePrimary .CommandPath}}{{with .Short}} — {{styleDim .}}{{end}}{{with .Long}}
 
 {{renderHelpText .}}{{end}}{{with .Example}}
 
@@ -190,7 +190,7 @@ func renderFlags(cmd *cobra.Command) string {
 
 var rootCmd = &cobra.Command{
 	Use:   brand.Name,
-	Short: "Setup & runtime universal untuk proyek Laravel",
+	Short: "",
 	Long:  "",
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Fprintln(cmd.OutOrStdout(), ui.Banner())
