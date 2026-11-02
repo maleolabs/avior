@@ -86,7 +86,21 @@ func ValidLocalDomain(domain string) bool {
 }
 
 // CaddyConfig menghasilkan Caddyfile untuk reverse proxy lokal.
+// DefaultAdminPort adalah port admin Caddy default (dialokasikan ulang
+// per proyek oleh internal/runtime Phase 3 bila sudah dipakai).
+const DefaultAdminPort = 2019
+
 func CaddyConfig(domain, upstream string, port int, https bool, storage string) string {
+	return caddyConfig(domain, upstream, port, https, storage, DefaultAdminPort)
+}
+
+// CaddyConfigAdmin seperti CaddyConfig dengan port admin Caddy eksplisit
+// (multi-project: tiap instance Caddy butuh admin API sendiri).
+func CaddyConfigAdmin(domain, upstream string, port int, https bool, storage string, adminPort int) string {
+	return caddyConfig(domain, upstream, port, https, storage, adminPort)
+}
+
+func caddyConfig(domain, upstream string, port int, https bool, storage string, adminPort int) string {
 	scheme := "http"
 	if https {
 		scheme = "https"
@@ -100,7 +114,7 @@ func CaddyConfig(domain, upstream string, port int, https bool, storage string) 
 		// Path adalah token Caddyfile, bukan shell argument. HOME tanpa quote
 		// (mis. username ber-spasi) terpecah jadi beberapa token dan internal
 		// issuer gagal saat handshake.
-		global = fmt.Sprintf("{\n\tadmin 127.0.0.1:2019\n\tauto_https disable_redirects\n\tstorage file_system %s\n}\n\n", caddyfileString(storage))
+		global = fmt.Sprintf("{\n\tadmin 127.0.0.1:%d\n\tauto_https disable_redirects\n\tstorage file_system %s\n}\n\n", adminPort, caddyfileString(storage))
 	}
 	tls := ""
 	if https {

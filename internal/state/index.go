@@ -185,3 +185,25 @@ func FindProject(selector string) (ProjectEntry, bool, error) {
 	}
 	return ProjectEntry{}, false, nil
 }
+
+// UsedPorts mengembalikan kumpulan port yang sudah dialokasikan ke proyek
+// lain (untuk deteksi collision multi-project). Entry sendiri (selfToken)
+// dikecualikan.
+func UsedPorts(selfToken string) map[int]bool {
+	used := map[int]bool{}
+	idx, exists, err := LoadIndex()
+	if err != nil || !exists {
+		return used
+	}
+	for _, p := range idx.Projects {
+		if p.Token == selfToken {
+			continue
+		}
+		for _, port := range []int{p.Ports.App, p.Ports.Vite, p.Ports.Caddy, p.Ports.CaddyAdmin} {
+			if port != 0 {
+				used[port] = true
+			}
+		}
+	}
+	return used
+}

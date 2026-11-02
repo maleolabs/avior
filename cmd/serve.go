@@ -13,20 +13,21 @@ import (
 )
 
 var (
-	serveHost          string
-	servePort          int
-	serveVitePort      int
-	serveCaddyPort     int
-	serveDomain        string
-	serveVirtualDomain bool
-	serveHTTPS         bool
-	serveTrustLocalCA  bool
-	serveCertStorage   string
-	serveHosts         bool
-	serveQueue         bool
-	serveScheduler     bool
-	serveOutput        string
-	serveTUI           bool
+	serveHost           string
+	servePort           int
+	serveVitePort       int
+	serveCaddyPort      int
+	serveCaddyAdminPort int
+	serveDomain         string
+	serveVirtualDomain  bool
+	serveHTTPS          bool
+	serveTrustLocalCA   bool
+	serveCertStorage    string
+	serveHosts          bool
+	serveQueue          bool
+	serveScheduler      bool
+	serveOutput         string
+	serveTUI            bool
 )
 
 // serveCmd mengekspos runtime supervisor (dev: Laravel+Horizon+scheduler+
@@ -80,6 +81,7 @@ var serveCmd = &cobra.Command{
 			Port:                servePort,
 			VitePort:            serveVitePort,
 			CaddyPort:           serveCaddyPort,
+			CaddyAdminPort:      serveCaddyAdminPort,
 			Domain:              serveDomain,
 			VirtualDomain:       serveVirtualDomain,
 			HTTPS:               serveHTTPS,
@@ -126,6 +128,7 @@ func init() {
 	serveCmd.Flags().IntVar(&serveVitePort, "vite-port", 5173, "port Vite development")
 	serveCmd.Flags().StringVar(&serveDomain, "domain", runtime.DefaultDomain(), "virtual domain lokal (.localhost tanpa hosts; .test perlu --hosts)")
 	serveCmd.Flags().IntVar(&serveCaddyPort, "caddy-port", 8080, "port proxy Caddy (localhost-only)")
+	serveCmd.Flags().IntVar(&serveCaddyAdminPort, "caddy-admin-port", 0, "port admin API Caddy (0 = alokasi otomatis)")
 	// Default production (deploy-like); NormalizeServeOptions menurunkannya
 	// untuk development kecuali flag di-set eksplisit.
 	serveCmd.Flags().BoolVar(&serveVirtualDomain, "virtual-domain", true, "aktifkan Caddy reverse proxy")

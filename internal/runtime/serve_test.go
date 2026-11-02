@@ -115,7 +115,7 @@ func TestPrepareCaddyRequiresConsentBeforeDownload(t *testing.T) {
 	fetched := false
 	fetchManagedCaddy = func(context.Context, string) error { fetched = true; return nil }
 	o := serveOpts(func(o *ServeOptions) { o.NonInteractive = true })
-	_, _, _, _, err := prepareCaddy(context.Background(), o, "app.localhost", false)
+	_, _, _, _, _, err := prepareCaddy(context.Background(), o, "app.localhost", false)
 	if err == nil || !contains(err.Error(), "consent") {
 		t.Fatalf("prepareCaddy error=%v, want consent gate", err)
 	}
@@ -136,7 +136,7 @@ func TestPrepareCaddyDeclinedConsentSkipsDownload(t *testing.T) {
 	o := serveOpts(func(o *ServeOptions) {
 		o.ConfirmCaddyDownload = func() (bool, error) { asked++; return false, nil }
 	})
-	_, _, _, _, err := prepareCaddy(context.Background(), o, "app.localhost", false)
+	_, _, _, _, _, err := prepareCaddy(context.Background(), o, "app.localhost", false)
 	if err == nil || !contains(err.Error(), "dibatalkan") {
 		t.Fatalf("prepareCaddy error=%v, want declined download", err)
 	}
@@ -171,7 +171,7 @@ func TestPrepareCaddyFirstRunUsesVerifiedManagedPath(t *testing.T) {
 		return nil
 	}
 	o := serveOpts(func(o *ServeOptions) { o.AcceptCaddyDownload = true })
-	svc, _, config, _, err := prepareCaddy(context.Background(), o, "app.localhost", false)
+	svc, _, config, _, _, err := prepareCaddy(context.Background(), o, "app.localhost", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,7 +198,7 @@ func TestPrepareCaddyPromptAcceptDownloadsToManagedPath(t *testing.T) {
 	o := serveOpts(func(o *ServeOptions) {
 		o.ConfirmCaddyDownload = func() (bool, error) { asked++; return true, nil }
 	})
-	_, _, config, _, err := prepareCaddy(context.Background(), o, "app.localhost", false)
+	_, _, config, _, _, err := prepareCaddy(context.Background(), o, "app.localhost", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +221,7 @@ func TestPrepareCaddyRejectsMissingPinBeforeDownload(t *testing.T) {
 	fetchManagedCaddy = func(context.Context, string) error { fetched = true; return nil }
 	caddyBinaryPin = func(string, string) (string, bool) { return "", false }
 	o := serveOpts(func(o *ServeOptions) { o.AcceptCaddyDownload = true })
-	_, _, _, _, err := prepareCaddy(context.Background(), o, "app.localhost", false)
+	_, _, _, _, _, err := prepareCaddy(context.Background(), o, "app.localhost", false)
 	if err == nil || !contains(err.Error(), "tambahkan pin di internal/proxy/pins.go") {
 		t.Fatalf("missing pin error=%v", err)
 	}
