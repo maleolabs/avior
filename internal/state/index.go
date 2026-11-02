@@ -45,6 +45,7 @@ func IndexPath() string {
 }
 
 // brandDir mengembalikan StateDir (dibungkus agar testable via HOME override).
+// Dipakai index.go dan lock.go.
 func brandDir() string {
 	return brand.StateDir()
 }

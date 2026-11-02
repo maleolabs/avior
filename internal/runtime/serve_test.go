@@ -38,6 +38,8 @@ func (s *sink) Write(p []byte) (int, error) { s.b = append(s.b, p...); return le
 
 // Consent .test (review M-7): .test tanpa --hosts ditolak fail-closed.
 func TestServeRejectsTestDomainWithoutHostsConsent(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
 	for _, domain := range []string{"app.test", "APP.TEST.", "app.test."} {
 		o := serveOpts(func(o *ServeOptions) { o.Domain = domain })
 		err := Serve(context.Background(), o)
@@ -48,6 +50,8 @@ func TestServeRejectsTestDomainWithoutHostsConsent(t *testing.T) {
 }
 
 func TestServeValidationFailClosedBeforeSpawn(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
 	cases := []struct {
 		name string
 		o    ServeOptions
@@ -71,6 +75,8 @@ func TestServeValidationFailClosedBeforeSpawn(t *testing.T) {
 // HTTPS + trust di development (explicit) tetap harus lolos validasi consent —
 // jangan sampai normalisasi membalik consent eksplisit.
 func TestServeExplicitFlagsInDevelopmentNotNormalizedAway(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
 	o := serveOpts(func(o *ServeOptions) {
 		o.Mode = mode.ModeDevelopment
 		o.VirtualDomain, o.HTTPS, o.TrustLocalCA = true, true, true
@@ -88,6 +94,8 @@ func TestServeExplicitFlagsInDevelopmentNotNormalizedAway(t *testing.T) {
 // tetap harus mencoba launch php — di test env tanpa php/Laravel, kegagalan
 // datang dari start php (bukan dari Caddy path).
 func TestServeWithoutVirtualDomainSkipsCaddy(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
 	o := serveOpts(func(o *ServeOptions) {
 		o.Mode = mode.ModeDevelopment
 		o.VirtualDomain = false
@@ -107,6 +115,8 @@ func TestServeWithoutVirtualDomainSkipsCaddy(t *testing.T) {
 }
 
 func TestPrepareCaddyRequiresConsentBeforeDownload(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
@@ -125,6 +135,8 @@ func TestPrepareCaddyRequiresConsentBeforeDownload(t *testing.T) {
 }
 
 func TestPrepareCaddyDeclinedConsentSkipsDownload(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
@@ -146,6 +158,8 @@ func TestPrepareCaddyDeclinedConsentSkipsDownload(t *testing.T) {
 }
 
 func TestPrepareCaddyFirstRunUsesVerifiedManagedPath(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
@@ -182,6 +196,8 @@ func TestPrepareCaddyFirstRunUsesVerifiedManagedPath(t *testing.T) {
 }
 
 func TestPrepareCaddyPromptAcceptDownloadsToManagedPath(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
@@ -212,6 +228,8 @@ func TestPrepareCaddyPromptAcceptDownloadsToManagedPath(t *testing.T) {
 }
 
 func TestPrepareCaddyRejectsMissingPinBeforeDownload(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)

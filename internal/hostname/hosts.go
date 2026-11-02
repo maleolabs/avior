@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/maleolabs/avior/internal/brand"
+	"github.com/maleolabs/avior/internal/state"
 )
 
 // Hook ini menjaga batas filesystem/privilege tetap testable tanpa
@@ -42,6 +43,12 @@ func EnsureHost(domain string, consent bool) (func(), error) {
 	if !consent {
 		return func() {}, fmt.Errorf("menambah %s ke hosts membutuhkan --yes atau konfirmasi eksplisit", domain)
 	}
+	// Serialisasi tulis hosts lintas proses (multi-project: beberapa serve
+	// bersamaan tidak boleh read-modify-write saling menimpa).
+	unlock, lockErr := state.LockHosts()
+	if lockErr == nil {
+		defer unlock()
+	}
 	p := hostsPath()
 	b, err := os.ReadFile(p)
 	if err != nil {
@@ -69,6 +76,12 @@ func EnsureHost(domain string, consent bool) (func(), error) {
 	return func() {
 		if !inserted {
 			return
+		}
+		// Hapus baris managed persis sama; tetap diserialisasi agar cleanup
+		// sebuah proyek tidak menimpa tulisan proyek lain yang sedang jalan.
+		unlock, lockErr := state.LockHosts()
+		if lockErr == nil {
+			defer unlock()
 		}
 		current, e := os.ReadFile(p)
 		if e != nil {

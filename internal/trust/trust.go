@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/maleolabs/avior/internal/brand"
+	"github.com/maleolabs/avior/internal/state"
 )
 
 // ChromiumBinary mendeteksi browser keluarga Chromium, termasuk instalasi
@@ -105,7 +106,13 @@ func (m *TrustManager) Install(config string) error {
 // InstallCaddy hanya melakukan instalasi CA Caddy yang otoritatif. Sengaja
 // aman dipanggil sebelum child process berjalan: helper browser/NSS opsional
 // tidak terlibat, jadi tidak bisa memblok atau race startup TLS Caddy.
+// Pemasangan diserialisasi dengan lock global lintas proses (multi-project:
+// beberapa serve bersamaan tidak boleh race pada CA root/NSS DB).
 func (m *TrustManager) InstallCaddy(config string) ([]TrustTargetResult, error) {
+	unlock, lockErr := state.LockTrust()
+	if lockErr == nil {
+		defer unlock()
+	}
 	results := []TrustTargetResult{{Target: TrustTargetCaddy}}
 	c := exec.Command(m.binary, "trust", "--config", config, "--adapter", "caddyfile")
 	var diagnostics strings.Builder
@@ -131,6 +138,10 @@ func (m *TrustManager) InstallCaddy(config string) ([]TrustTargetResult, error) 
 // InstallOptionalTargets memasang target browser/platform setelah Caddy
 // melayani TLS, lalu menyimpan fingerprint dan metadata target lengkap.
 func (m *TrustManager) InstallOptionalTargets() ([]TrustTargetResult, error) {
+	unlock, lockErr := state.LockTrust()
+	if lockErr == nil {
+		defer unlock()
+	}
 	b, err := os.ReadFile(m.root())
 	if err != nil {
 		return nil, fmt.Errorf("baca root CA Caddy: %w", err)
