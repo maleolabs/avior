@@ -249,3 +249,34 @@ func saveAtomic(path string, data []byte, perm os.FileMode) error {
 	}
 	return nil
 }
+
+// CanonicalRoot mengembalikan bentuk kanonik root proyek (abs + clean +
+// symlink-resolved bila memungkinkan) — identitas yang dipakai Paths dan
+// ProjectToken.
+func CanonicalRoot(projectRoot string) (string, error) {
+	abs, err := filepath.Abs(projectRoot)
+	if err != nil {
+		return "", fmt.Errorf("state: abs path: %w", err)
+	}
+	abs = filepath.Clean(abs)
+	if resolved, resolveErr := filepath.EvalSymlinks(abs); resolveErr == nil {
+		abs = resolved
+	} else if !os.IsNotExist(resolveErr) {
+		if resolved, partialErr := resolveExistingPrefix(abs); partialErr == nil {
+			abs = resolved
+		}
+	}
+	return abs, nil
+}
+
+// ProjectToken mengembalikan token deterministik untuk root proyek
+// (sha256 12 byte pertama, 24 hex). Token dipakai sebagai key identitas
+// project di index dan registry.
+func ProjectToken(projectRoot string) (string, error) {
+	abs, err := CanonicalRoot(projectRoot)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256([]byte(abs))
+	return hex.EncodeToString(sum[:12]), nil
+}

@@ -15,9 +15,32 @@ import (
 // ProjectStatus is a project-scoped runtime snapshot for monitor and attach.
 type ProjectStatus struct {
 	ProjectRoot string
+	ProjectName string
+	Token       string
+	URL         string
 	Running     bool
 	State       state.RuntimeState
 	Services    []state.Process
+}
+
+// statusURL menyusun URL user-facing: HTTPS bila caddy admin tercatat dan
+// domain ada, HTTP jika tidak; port situs disertakan bila bukan 80/443.
+func statusURL(st state.RuntimeState) string {
+	if st.Domain == "" {
+		return ""
+	}
+	scheme := "http"
+	port := st.Ports.Caddy
+	if st.CaddyAdminPort != 0 {
+		scheme = "https"
+	}
+	if port == 0 {
+		port = st.Port
+	}
+	if port == 0 || port == 80 || (scheme == "https" && port == 443) {
+		return scheme + "://" + st.Domain
+	}
+	return fmt.Sprintf("%s://%s:%d", scheme, st.Domain, port)
 }
 
 // Monitor returns all runtimes under user state directory, one status per project.
@@ -58,7 +81,15 @@ func Monitor() ([]ProjectStatus, error) {
 			services = nil
 		}
 		running := st.MainPID.PID > 0 && processgroup.ProcessAlive(st.MainPID)
-		statuses = append(statuses, ProjectStatus{ProjectRoot: st.ProjectRoot, Running: running, State: st, Services: services})
+		statuses = append(statuses, ProjectStatus{
+			ProjectRoot: st.ProjectRoot,
+			ProjectName: st.ProjectName,
+			Token:       st.ProjectToken,
+			URL:         statusURL(st),
+			Running:     running,
+			State:       st,
+			Services:    services,
+		})
 	}
 	return statuses, nil
 }
@@ -133,7 +164,13 @@ func stopWithHooks(project string, wait func(time.Duration), stopManaged func(st
 	if !waitForExitTimeout(st.MainPID, wait, alive, timeout) {
 		return fmt.Errorf("runtime: project %s still running after stop timeout", project)
 	}
-	return state.RemoveStateIfOwner(statePath, st.MainPID)
+	if err := state.RemoveStateIfOwner(statePath, st.MainPID); err != nil {
+		return err
+	}
+	if st.ProjectToken != "" {
+		_ = state.RemoveProject(st.ProjectToken)
+	}
+	return nil
 }
 
 func waitForExit(pid state.Process, wait func(time.Duration), alive func(state.Process) bool) bool {

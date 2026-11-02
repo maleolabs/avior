@@ -203,6 +203,9 @@ func TestRootPathValidation(t *testing.T) {
 	}
 }
 
+// assertMonitorRow memverifikasi satu baris status monitor mengandung
+// root, pid, dan port (bila non-zero) — tidak mematok jumlah kolom mutlak
+// (output kontekstual Phase 2: name/status/pid/url/ports/root).
 func assertMonitorRow(t *testing.T, output, root string, port int) {
 	t.Helper()
 	rows := strings.Split(strings.TrimSpace(output), "\n")
@@ -210,16 +213,16 @@ func assertMonitorRow(t *testing.T, output, root string, port int) {
 		t.Fatalf("expected one row, got %q", output)
 	}
 	fields := strings.Split(rows[0], "\t")
-	want := []string{root, strconv.Itoa(os.Getpid())}
-	if port != 0 {
-		want = append(want, strconv.Itoa(port))
+	if len(fields) < 3 {
+		t.Fatalf("unexpected monitor row (too few fields): %q", output)
 	}
-	if len(fields) != len(want) {
-		t.Fatalf("unexpected monitor row: %q (want %d kolom)", output, len(want))
+	if !strings.Contains(output, root) {
+		t.Fatalf("monitor row tidak memuat root %q: %q", root, output)
 	}
-	for i, w := range want {
-		if fields[i] != w {
-			t.Fatalf("unexpected monitor row: %q (kolom %d = %q, want %q)", output, i, fields[i], w)
-		}
+	if !strings.Contains(output, strconv.Itoa(os.Getpid())) {
+		t.Fatalf("monitor row tidak memuat pid: %q", output)
+	}
+	if port != 0 && !strings.Contains(output, "app="+strconv.Itoa(port)) {
+		t.Fatalf("monitor row tidak memuat port app=%d: %q", port, output)
 	}
 }

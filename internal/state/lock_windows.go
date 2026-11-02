@@ -34,3 +34,20 @@ func lockState(path string) (func(), error) {
 		_ = f.Close()
 	}, nil
 }
+
+func lockIndexFile(path string) (func(), error) {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	var overlapped syscall.Overlapped
+	r, _, callErr := stateLockFileEx.Call(f.Fd(), 2, 0, 1, 0, uintptr(unsafe.Pointer(&overlapped)))
+	if r == 0 {
+		_ = f.Close()
+		return nil, callErr
+	}
+	return func() {
+		_, _, _ = stateUnlockFileEx.Call(f.Fd(), 0, 1, 0, uintptr(unsafe.Pointer(&overlapped)))
+		_ = f.Close()
+	}, nil
+}

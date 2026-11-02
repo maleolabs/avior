@@ -10,13 +10,10 @@ package runtime
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"log"
 	"os/exec"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -152,10 +149,9 @@ func Start(ctx context.Context, o StartOptions) (*Supervision, error) {
 		s.unreg = append(s.unreg, remove)
 		if i == 0 {
 			s.stateOwn = sup.Identity()
-			token := ""
-			if abs, aerr := filepath.Abs(o.Dir); aerr == nil {
-				sum := sha256.Sum256([]byte(abs))
-				token = hex.EncodeToString(sum[:12])
+			token, terr := state.ProjectToken(o.Dir)
+			if terr != nil {
+				token = ""
 			}
 			if err := state.SaveState(statePath, state.RuntimeState{
 				Version:        state.StateVersion,
@@ -173,6 +169,16 @@ func Start(ctx context.Context, o StartOptions) (*Supervision, error) {
 				cancel()
 				return nil, fmt.Errorf("runtime: save state: %w", err)
 			}
+			// Index update best-effort: kegagalan index tidak boleh
+			// menggagalkan start runtime (monitor tetap scan state files).
+			_ = state.UpsertProject(state.ProjectEntry{
+				Token:   token,
+				Root:    o.Dir,
+				Name:    o.ProjectName,
+				Domain:  o.Domain,
+				Ports:   o.Ports,
+				LastPID: s.stateOwn.PID,
+			})
 		}
 		go func(i int, sup *processgroup.Supervised) {
 			<-sup.Reaped()
