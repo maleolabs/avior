@@ -59,6 +59,7 @@ type RuntimeState struct {
 	Ports          PortSet        `json:"ports,omitempty"`
 	Port           int            `json:"port,omitempty"` // legacy compat (Laravel port)
 	CaddyAdminPort int            `json:"caddy_admin_port,omitempty"`
+	Owner          Process        `json:"owner,omitempty"` // proses CLI pemilik runtime (untuk stop terkelola)
 	MainPID        Process        `json:"main_pid"`
 	StartedAt      time.Time      `json:"started_at,omitempty"`
 	UpdatedAt      time.Time      `json:"updated_at"`

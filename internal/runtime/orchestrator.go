@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"os"
 	"os/exec"
 	"sync"
 	"time"
@@ -71,6 +72,7 @@ type Supervision struct {
 	unreg     []func() error
 	statePath string
 	stateOwn  state.Process
+	owner     state.Process
 
 	raw   chan childExit // semua event exit child
 	first chan Exit      // fan-out child PERTAMA (cap 1, tidak pernah block)
@@ -149,6 +151,11 @@ func Start(ctx context.Context, o StartOptions) (*Supervision, error) {
 		s.unreg = append(s.unreg, remove)
 		if i == 0 {
 			s.stateOwn = sup.Identity()
+			// Owner runtime adalah proses CLI ini sendiri: registry
+			// processgroup mencatat child dengan OwnerPID = PID CLI, jadi
+			// stop terkelola harus mencari child milik owner ini (bukan
+			// child pertama yang disimpan sebagai MainPID untuk readiness).
+			s.owner = ownerIdentity()
 			token, terr := state.ProjectToken(o.Dir)
 			if terr != nil {
 				token = ""
@@ -162,6 +169,7 @@ func Start(ctx context.Context, o StartOptions) (*Supervision, error) {
 				Port:           o.Port,
 				Ports:          o.Ports,
 				CaddyAdminPort: o.CaddyAdminPort,
+				Owner:          s.owner,
 				MainPID:        s.stateOwn,
 				StartedAt:      s.stateOwn.StartedAt,
 			}); err != nil {
@@ -297,4 +305,19 @@ func stopAll(group []*processgroup.Supervised) {
 	for _, sup := range group {
 		_ = sup.Terminate(terminateGrace, terminateForce)
 	}
+}
+
+// ownerIdentity mencatat identitas proses CLI ini. Registry processgroup
+// menyimpan OwnerExecutable = path executable owner (basename dibandingkan
+// via executablesMatch) dan OwnerIdentity = command line owner. Untuk
+// kompatibilitas, OwnerCommand memakai executable path (os.Args[0]) seperti
+// yang processgroup catat pada saat Start (cmd.Path) — tetapi verifikasi
+// StopManagedRuntime membandingkan processIdentity(ownerPID) yang datang
+// dari ps: comm= dan args=. Lihat internal/processgroup/registry.go.
+func ownerIdentity() state.Process {
+	exe := ""
+	if len(os.Args) > 0 && os.Args[0] != "" {
+		exe = os.Args[0]
+	}
+	return state.Process{PID: os.Getpid(), Command: exe, StartedAt: time.Now()}
 }

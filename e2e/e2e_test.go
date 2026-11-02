@@ -495,3 +495,163 @@ func TestStateAndManagedStop(t *testing.T) {
 		t.Fatal("StopManagedProcess berhasil tanpa record registry")
 	}
 }
+
+// --- Siklus 5: multi-project paralel — isolasi state/index/monitor/stop ---
+
+// TestMultiProjectParallel menjalankan DUA runtime bersamaan (php -S nyata,
+// port berbeda), lalu memverifikasi:
+//   - kedua state file terpisah dan terisi (token/name/domain/ports),
+//   - projects.json index memuat kedua proyek,
+//   - Monitor() melihat keduanya dengan URL berbeda,
+//   - Stop satu proyek tidak menghentikan yang lain,
+//   - duplicate guard menolak serve ulang proyek yang masih hidup.
+func TestMultiProjectParallel(t *testing.T) {
+	isolateE2EHome(t)
+
+	shop := t.TempDir()
+	blog := t.TempDir()
+	ports := make([]int, 2)
+	for i := range ports {
+		ports[i] = freePort(t)
+	}
+
+	// Fixtures: artisan + composer.json + .env minimal (apa yang dicek
+	// discovery Serve) — di sini kita memakai Start langsung dengan child
+	// php -S, mengikuti pola TestServeStopCycle (proses nyata, tanpa
+	// Laravel).
+	type runtime struct {
+		root  string
+		name  string
+		token string
+		sup   *appruntime.Supervision
+	}
+	startRuntime := func(root, name string, appPort int) *runtime {
+		docroot := filepath.Join(root, "public")
+		if err := os.MkdirAll(docroot, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(docroot, "index.php"), []byte("<?php echo \""+name+"\";"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		token, err := state.ProjectToken(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sup, err := appruntime.Start(context.Background(), appruntime.StartOptions{
+			Dir:         root,
+			ProjectName: name,
+			Port:        appPort,
+			Domain:      name + ".localhost",
+			Ports:       state.PortSet{App: appPort, Caddy: 0},
+			Services: []appruntime.Service{
+				{Name: "php", Args: []string{"-S", net.JoinHostPort("127.0.0.1", fmt.Sprint(appPort)), "-t", docroot}},
+			},
+		})
+		if err != nil {
+			t.Fatalf("start %s: %v", name, err)
+		}
+		t.Cleanup(func() { sup.Stop() })
+		return &runtime{root: root, name: name, token: token, sup: sup}
+	}
+
+	shopRT := startRuntime(shop, "shop", ports[0])
+	blogRT := startRuntime(blog, "blog", ports[1])
+
+	// Kedua upstream nyata melayani traffic.
+	for i, rt := range []*runtime{shopRT, blogRT} {
+		if err := proxy.WaitReady("127.0.0.1", ports[i], 20*time.Second); err != nil {
+			t.Fatalf("%s tidak siap: %v", rt.name, err)
+		}
+		resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/", ports[i])) //nolint:gosec,noctx -- e2e lokal
+		if err != nil {
+			t.Fatalf("HTTP %s gagal: %v", rt.name, err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if string(body) != rt.name {
+			t.Fatalf("%s body = %q, want %q", rt.name, body, rt.name)
+		}
+	}
+
+	// State terpisah + identitas v2 terisi.
+	for _, rt := range []*runtime{shopRT, blogRT} {
+		path, _, err := state.Paths(rt.root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		st, exists, err := state.LoadState(path)
+		if err != nil || !exists {
+			t.Fatalf("state %s: exists=%v err=%v", rt.name, exists, err)
+		}
+		if st.ProjectToken != rt.token || st.ProjectName != rt.name || st.Domain != rt.name+".localhost" {
+			t.Fatalf("state %s identitas beda: %+v", rt.name, st)
+		}
+	}
+
+	// Index memuat kedua proyek.
+	idx, exists, err := state.LoadIndex()
+	if err != nil || !exists {
+		t.Fatalf("LoadIndex: exists=%v err=%v", exists, err)
+	}
+	if len(idx.Projects) != 2 {
+		t.Fatalf("index = %d proyek, want 2: %+v", len(idx.Projects), idx.Projects)
+	}
+
+	// Monitor melihat keduanya, URL berbeda.
+	statuses, err := appruntime.Monitor()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(statuses) != 2 {
+		t.Fatalf("Monitor = %d, want 2", len(statuses))
+	}
+	urls := map[string]bool{}
+	for _, st := range statuses {
+		if !st.Running {
+			t.Fatalf("proyek %s harus running", st.ProjectName)
+		}
+		urls[st.URL] = true
+	}
+	if len(urls) != 2 {
+		t.Fatalf("URL monitor tidak unik: %v", urls)
+	}
+
+	// Duplicate guard: serve ulang proyek yang masih hidup harus ditolak.
+	if !appruntime.RuntimeRunning(shop) {
+		t.Fatal("RuntimeRunning(shop) harus true saat runtime hidup")
+	}
+
+	// Stop satu proyek; yang lain tetap melayani.
+	if err := appruntime.Stop(shop); err != nil {
+		t.Fatalf("Stop shop gagal: %v", err)
+	}
+	if err := proxy.WaitReady("127.0.0.1", ports[1], 2*time.Second); err != nil {
+		t.Fatalf("blog harus tetap hidup setelah shop dihentikan: %v", err)
+	}
+	resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/", ports[1])) //nolint:gosec,noctx -- e2e lokal
+	if err != nil {
+		t.Fatalf("HTTP blog gagal setelah stop shop: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if string(body) != "blog" {
+		t.Fatalf("blog body = %q, want %q", body, "blog")
+	}
+	if err := appruntime.Stop(blog); err != nil {
+		t.Fatalf("Stop blog gagal: %v", err)
+	}
+	for i := range ports {
+		if err := proxy.WaitReady("127.0.0.1", ports[i], 2*time.Second); err == nil {
+			t.Fatalf("port %d masih melayani setelah stop", ports[i])
+		}
+	}
+}
+
+// isolateE2EHome mengarahkan state dir ke temp; tes multi-proyek tidak boleh
+// menyentuh state user sungguhan.
+func isolateE2EHome(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir)
+}

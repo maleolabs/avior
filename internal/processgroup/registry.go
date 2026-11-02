@@ -172,6 +172,45 @@ func StopManagedRuntime(path string, ownerPID int) bool {
 	return matched
 }
 
+// StopManagedChildren menghentikan SEMUA child yang tercatat atas nama
+// owner tanpa men-terminasi owner itu sendiri — dipakai saat pemanggil
+// ADALAH owner (runtime in-process: e2e, TUI) sehingga sinyal ke diri
+// sendiri tidak terjadi. Identitas owner tetap diverifikasi.
+func StopManagedChildren(path string, ownerPID int) bool {
+	if path == "" {
+		return false
+	}
+	registryMu.Lock()
+	unlock, err := lockRegistry(path)
+	if err != nil {
+		registryMu.Unlock()
+		return false
+	}
+	records, err := readProcessRegistry(path)
+	unlock()
+	registryMu.Unlock()
+	if err != nil {
+		return false
+	}
+	ownerExe, ownerIdentity := processIdentity(ownerPID)
+	if ownerExe == "" || ownerIdentity == "" {
+		return false
+	}
+	owned := recordsForOwner(records, ownerPID, ownerExe, ownerIdentity)
+	matched := false
+	for _, r := range owned {
+		if !recordMatchesProcess(r) {
+			continue
+		}
+		terminatePID(r.PID)
+		matched = true
+	}
+	if matched {
+		removeExactRecords(path, owned)
+	}
+	return matched
+}
+
 // ProcessAlive reports whether recorded process identity still matches live PID.
 func ProcessAlive(process state.Process) bool {
 	if process.PID <= 0 || process.Command == "" || process.StartedAt.IsZero() {

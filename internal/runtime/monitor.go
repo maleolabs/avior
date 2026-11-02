@@ -169,7 +169,23 @@ func stopWithHooks(project string, wait func(time.Duration), stopManaged func(st
 	if st.MainPID.PID <= 0 {
 		return nil
 	}
-	if !stopManaged(registry, st.MainPID.PID) {
+	// Stop terkelola: hentikan child milik owner runtime (proses CLI yang
+	// menjalankan runtime ini). Owner catatan: state v2 (Owner) atau
+	// fallback MainPID (state v1, child pertama).
+	owner := st.Owner
+	if owner.PID == 0 {
+		owner = st.MainPID
+	}
+	// Owner == pemanggil (e2e/TUI in-process): hentikan child-nya saja,
+	// jangan kirim sinyal ke diri sendiri. Owner berbeda proses: biarkan
+	// runtime owner menyelesaikan teardown normalnya.
+	stopped := false
+	if owner.PID == os.Getpid() {
+		stopped = processgroup.StopManagedChildren(registry, owner.PID)
+	} else {
+		stopped = stopManaged(registry, owner.PID)
+	}
+	if !stopped {
 		if alive(st.MainPID) {
 			return fmt.Errorf("runtime: cannot safely stop project %s", project)
 		}

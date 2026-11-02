@@ -4,7 +4,7 @@ Dokumen ini adalah rencana penyesuaian agar satu binary `avior` dapat
 menjalankan **N project Laravel secara bersamaan** pada satu device, di
 Linux/macOS/Windows, dengan monitoring yang kontekstual per project.
 
-Status: **draft plan (belum dieksekusi)**. Sumber review: `internal/runtime`,
+Status: **Phase 1–6 DONE** (commit c7d4ae8..547b05a); Phase 7 (gateway clean URL, opt-in) dirancang, belum dieksekusi. Sumber review: `internal/runtime`,
 `internal/state`, `internal/processgroup`, `internal/hostname`,
 `internal/proxy`, `internal/trust`, `cmd/`.
 
@@ -291,7 +291,7 @@ other-app  /home/.../other-app           running  12399   http://other-app.local
 
 ## 8. Phased Implementation Plan
 
-### Phase 1: State Identity + Per-Project Files (foundation)
+### Phase 1: State Identity + Per-Project Files (foundation) — DONE
 
 **Scope**
 - Tambah `ProjectToken`, `ProjectName`, `Version`, `Domain`,
@@ -310,7 +310,7 @@ other-app  /home/.../other-app           running  12399   http://other-app.local
 - `TestWriteReadStateV2`
 - `TestMonitorSkipsInvalidEntry`
 
-### Phase 2: Project Index + Monitor Context
+### Phase 2: Project Index + Monitor Context — DONE
 
 **Scope**
 - `projects.json` + global lock.
@@ -327,7 +327,7 @@ other-app  /home/.../other-app           running  12399   http://other-app.local
 - `TestMonitorListsMultipleProjects`
 - `TestProjectsCommandJSON`
 
-### Phase 3: Port + Caddy Admin Allocator
+### Phase 3: Port + Caddy Admin Allocator — DONE
 
 **Scope**
 - Port allocator + lock + range.
@@ -345,7 +345,7 @@ other-app  /home/.../other-app           running  12399   http://other-app.local
 - `TestCaddyConfigUsesAdminPort`
 - `TestTwoProjectsNoPortCollision`
 
-### Phase 4: Domain Slugger + Uniqueness
+### Phase 4: Domain Slugger + Uniqueness — DONE
 
 **Scope**
 - Slug generation dari basename.
@@ -360,7 +360,7 @@ other-app  /home/.../other-app           running  12399   http://other-app.local
 - `TestDomainSlugCollision`
 - `TestManagedHostRemovalOnlyOwnedLine` (existing)
 
-### Phase 5: Attach/Stop/Select UX + Duplicate Guard
+### Phase 5: Attach/Stop/Select UX + Duplicate Guard — DONE
 
 **Scope**
 - Resolver project (path/name/token).
@@ -377,7 +377,7 @@ other-app  /home/.../other-app           running  12399   http://other-app.local
 - `TestStopProjectScoped`
 - `TestDuplicateRuntimeRejected`
 
-### Phase 6: Shared CA + Trust Consistency
+### Phase 6: Shared CA + Trust Consistency — DONE
 
 **Scope**
 - Shared storage default tetap.
@@ -498,3 +498,24 @@ Keputusan yang dibutuhkan user:
 1. Apakah clean URL jadi default (butuh sudo) atau opt-in flag?
 2. Apakah Vite HMR harus lewat gateway, atau boleh akses port langsung?
 3. Apakah gateway Caddy hidup terus (daemon) atau di-spawn ulang per serve?
+
+---
+
+## 12. Bukti End-to-End (Phase 1–6)
+
+`e2e/e2e_test.go::TestMultiProjectParallel` — proses nyata (php), dua
+runtime bersamaan:
+
+- kedua upstream php `-S` melayani traffic masing-masing,
+- state file terpisah dengan identitas v2 (token/name/domain/ports),
+- `projects.json` memuat kedua proyek,
+- `Monitor()` melihat keduanya dengan URL berbeda,
+- `RuntimeRunning` menolak serve ulang proyek yang masih hidup,
+- `Stop(shop)` tidak menghentikan blog; blog tetap melayani hingga di-stop,
+- setelah stop, kedua port benar-benar tertutup.
+
+Perbaikan struktural yang ditemukan e2e: `RuntimeState.Owner` (proses CLI
+pemilik runtime) — `StopManagedRuntime` mencari child berdasarkan owner,
+bukan child pertama (MainPID tetap child pertama untuk readiness).
+Pemanggil yang merupakan owner sendiri (e2e/TUI in-process) memakai
+`StopManagedChildren` agar tidak men-sinyal diri sendiri.
