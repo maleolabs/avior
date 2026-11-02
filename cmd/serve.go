@@ -126,7 +126,7 @@ func init() {
 	serveCmd.Flags().StringVar(&serveHost, "host", "127.0.0.1", "alamat bind server")
 	serveCmd.Flags().IntVar(&servePort, "port", 8000, "port Laravel")
 	serveCmd.Flags().IntVar(&serveVitePort, "vite-port", 5173, "port Vite development")
-	serveCmd.Flags().StringVar(&serveDomain, "domain", runtime.DefaultDomain(), "virtual domain lokal (.localhost tanpa hosts; .test perlu --hosts)")
+	serveCmd.Flags().StringVar(&serveDomain, "domain", "", "virtual domain lokal (default: slug nama proyek; .test perlu --hosts)")
 	serveCmd.Flags().IntVar(&serveCaddyPort, "caddy-port", 8080, "port proxy Caddy (localhost-only)")
 	serveCmd.Flags().IntVar(&serveCaddyAdminPort, "caddy-admin-port", 0, "port admin API Caddy (0 = alokasi otomatis)")
 	// Default production (deploy-like); NormalizeServeOptions menurunkannya

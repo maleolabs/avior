@@ -106,8 +106,27 @@ func Serve(ctx context.Context, o ServeOptions) error {
 	virtual, https, trustCA := NormalizeServeOptions(o.Mode, o.Changed, o.NonInteractive, o.VirtualDomain, o.HTTPS, o.TrustLocalCA)
 	domain := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(o.Domain), "."))
 	if virtual {
+		selfToken, _ := state.ProjectToken(o.Root)
 		if domain == "" {
-			domain = defaultDomain()
+			projectName := o.ProjectName
+			if projectName == "" {
+				projectName = projectNameFromRoot(o.Root)
+			}
+			// Default domain = slug(nama proyek), unik antar proyek.
+			resolved, derr := UniqueDomain(projectName, selfToken)
+			if derr != nil {
+				return derr
+			}
+			domain = resolved
+		} else {
+			// Override eksplisit: validasi tidak dipakai proyek lain.
+			used, derr := usedDomains(selfToken)
+			if derr != nil {
+				return derr
+			}
+			if used[domain] {
+				return fmt.Errorf("domain %s dipakai proyek lain; gunakan --domain untuk memilih domain lain", domain)
+			}
 		}
 		if !proxy.ValidLocalDomain(domain) {
 			return fmt.Errorf("domain harus localhost-only (.localhost atau .test)")
