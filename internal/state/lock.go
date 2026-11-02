@@ -27,3 +27,7 @@ func LockTrust() (func(), error) { return lockFile(brand.Name + "-trust.lock") }
 
 // LockHosts mengunci tulis /etc/hosts lintas proses (multi-project).
 func LockHosts() (func(), error) { return lockFile(brand.Name + "-hosts.lock") }
+
+// LockGateway mengunci operasi gateway clean URL (regenerate config,
+// start/stop proses gateway) lintas proses (Phase 7).
+func LockGateway() (func(), error) { return lockFile(brand.Name + "-gateway.lock") }

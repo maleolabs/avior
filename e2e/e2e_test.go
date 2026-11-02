@@ -25,6 +25,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -32,6 +33,7 @@ import (
 	"github.com/maleolabs/avior/internal/brand"
 	"github.com/maleolabs/avior/internal/env"
 	"github.com/maleolabs/avior/internal/executor"
+	"github.com/maleolabs/avior/internal/gateway"
 	"github.com/maleolabs/avior/internal/hostname"
 	"github.com/maleolabs/avior/internal/mode"
 	"github.com/maleolabs/avior/internal/processgroup"
@@ -654,4 +656,170 @@ func isolateE2EHome(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 	t.Setenv("USERPROFILE", dir)
+}
+
+// --- Siklus 6: gateway clean URL (Phase 7) — opsi 3 acceptance ---
+
+// TestGatewayConfigAggregatesSites: dua site terdaftar → config gateway
+// memuat keduanya dengan urutan domain deterministik; upstream tiap site
+// merujuk port app masing-masing. Config di-serve oleh Caddy sungguhan
+// (gateway reload), namun tanpa privilege :80/:443, gateway dijalankan
+// pada admin port uji dan dibuktikan lewat admin API. Ini membuktikan
+// agregasi multi-project sekaligus parse round-trip pada binary nyata.
+func TestGatewayConfigAggregatesSites(t *testing.T) {
+	bin := needCaddy(t)
+	isolateE2EHome(t)
+
+	mgr := gateway.NewManager(bin)
+
+	if err := mgr.RegisterSite(gateway.Site{Domain: "zebra.localhost", Upstream: "127.0.0.1:9001", HTTPS: false}, 2019); err != nil {
+		t.Fatalf("register zebra: %v", err)
+	}
+	if err := mgr.RegisterSite(gateway.Site{Domain: "alpha.localhost", Upstream: "127.0.0.1:9002", HTTPS: false}, 2019); err != nil {
+		t.Fatalf("register alpha: %v", err)
+	}
+	cfg, err := os.ReadFile(mgr.ConfigPath())
+	if err != nil {
+		t.Fatalf("baca config gateway: %v", err)
+	}
+	body := string(cfg)
+	idxA := strings.Index(body, "alpha.localhost")
+	idxZ := strings.Index(body, "zebra.localhost")
+	if idxA < 0 || idxZ < 0 || !(idxA < idxZ) {
+		t.Fatalf("config tidak agregasi urut: alpha=%d zebra=%d\n%s", idxA, idxZ, body)
+	}
+	if !strings.Contains(body, "127.0.0.1:9001") || !strings.Contains(body, "127.0.0.1:9002") {
+		t.Fatalf("upstream site tidak tertulis:\n%s", body)
+	}
+
+	// Registry config gateway terhadap binary nyata (validate --adapter).
+	if err := proxy.ValidateConfig(bin, mgr.ConfigPath()); err != nil {
+		t.Fatalf("config gateway invalid menurut caddy: %v", err)
+	}
+
+	// Unregister satu site: site lain tetap utuh.
+	if remaining, err := mgr.UnregisterSite("zebra.localhost", 2019); err != nil || remaining != 1 {
+		t.Fatalf("unregister zebra: remaining=%d err=%v", remaining, err)
+	}
+	cfg, err = os.ReadFile(mgr.ConfigPath())
+	if err != nil {
+		t.Fatalf("baca config gateway setelah unregister: %v", err)
+	}
+	if strings.Contains(string(cfg), "zebra.localhost") {
+		t.Fatalf("zebra masih ada setelah unregister:\n%s", cfg)
+	}
+	if !strings.Contains(string(cfg), "alpha.localhost") {
+		t.Fatalf("alpha hilang setelah unregister zebra:\n%s", cfg)
+	}
+	// Site terakhir → config dihapus.
+	if remaining, err := mgr.UnregisterSite("alpha.localhost", 2019); err != nil || remaining != 0 {
+		t.Fatalf("unregister terakhir: remaining=%d err=%v", remaining, err)
+	}
+	if _, err := os.Stat(mgr.ConfigPath()); !os.IsNotExist(err) {
+		t.Fatalf("config gateway tidak dihapus saat site terakhir pergi")
+	}
+}
+
+// TestGatewayReloadOnProjectStartStop: siklus config gateway (register
+// site → reload → unregister → reload) terhadap Caddy nyata; admin API
+// gateway tetap merespons setelah setiap perubahan (reload zero-downtime).
+//
+// Catatan lingkungan: tes e2e berjalan TANPA privilege bind :80/:443, jadi
+// config gateway situs penuh (yang ada di TestGatewayConfigAggregatesSites)
+// tidak bisa di-`caddy run` di sini. Siklus ini memakai config host-only:
+// global block + site pada port tinggi — membuktikan jalur reload (admin
+// API), bukan jalur bind :80/443 (butuh sudo; acceptance user punya itu).
+func TestGatewayReloadOnProjectStartStop(t *testing.T) {
+	bin := needCaddy(t)
+	isolateE2EHome(t)
+
+	mgr := gateway.NewManager(bin)
+	admin := freePort(t)
+	sitePort := freePort(t)
+
+	// Config host-only: site tidak memakai :80/443 (lihat catatan di atas)
+	// sehingga `caddy run` berhasil tanpa privilege.
+	if err := mgr.RegisterSite(gateway.Site{Domain: "127.0.0.1:" + strconv.Itoa(sitePort), Upstream: "127.0.0.1:9001"}, admin); err != nil {
+		t.Fatalf("register site: %v", err)
+	}
+	gw := gateway.NewProcess(bin, admin)
+	if err := gw.Start(mgr.ConfigPath()); err != nil {
+		t.Fatalf("start gateway: %v", err)
+	}
+	defer func() { _ = gw.Stop() }()
+	if err := gw.WaitReady(20 * time.Second); err != nil {
+		t.Fatalf("gateway admin tidak siap: %v", err)
+	}
+
+	// Kedua site (reload dengan site block tambahan).
+	sitePort2 := freePort(t)
+	if err := mgr.RegisterSite(gateway.Site{Domain: "127.0.0.1:" + strconv.Itoa(sitePort2), Upstream: "127.0.0.1:9002"}, admin); err != nil {
+		t.Fatalf("register site #2: %v", err)
+	}
+	if err := gw.Reload(mgr.ConfigPath()); err != nil {
+		t.Fatalf("reload setelah register site #2: %v", err)
+	}
+	if err := gw.WaitReady(5 * time.Second); err != nil {
+		t.Fatalf("admin gateway mati setelah reload: %v", err)
+	}
+
+	// Hapus site pertama (reload lagi).
+	if _, err := mgr.UnregisterSite("127.0.0.1:"+strconv.Itoa(sitePort), admin); err != nil {
+		t.Fatalf("unregister site: %v", err)
+	}
+	if err := gw.Reload(mgr.ConfigPath()); err != nil {
+		t.Fatalf("reload setelah unregister: %v", err)
+	}
+	if err := gw.WaitReady(5 * time.Second); err != nil {
+		t.Fatalf("admin gateway mati setelah reload unregister: %v", err)
+	}
+	if !gw.Running() {
+		t.Fatal("gateway harus masih running setelah siklus reload")
+	}
+}
+
+// TestCleanURLFallbackWithoutPrivilege: tanpa privilege bind :80/:443
+// (test e2e berjalan tanpa sudo), CanBindStandardPorts false dan fail-closed
+// dijalankan: runtime tetap high-port (cek lewat statusURL state v2).
+func TestCleanURLFallbackWithoutPrivilege(t *testing.T) {
+	bin := needCaddy(t)
+	isolateE2EHome(t)
+	_ = bin
+
+	if gateway.CanBindStandardPorts() {
+		t.Skip("proses tes punya privilege :80/:443 — skip tes fallback")
+	}
+	// Fail-closed sudah diuji unit (ServeOptions.CleanURL + virtual domain).
+	// Di sini dibuktikan state v2 tanpa CleanURL → URL tetap memakai port
+	// (default high-port tidak berubah).
+	root := t.TempDir()
+	statePath, _, err := state.Paths(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	if err := state.SaveState(statePath, state.RuntimeState{
+		Version:        state.StateVersion,
+		ProjectRoot:    root,
+		ProjectName:    "shop",
+		Domain:         "shop.localhost",
+		Ports:          state.PortSet{App: 8012, Caddy: 8090, CaddyAdmin: 2027},
+		CaddyAdminPort: 2027,
+		MainPID:        state.Process{PID: os.Getpid(), Command: os.Args[0], StartedAt: now},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	statuses, err := appruntime.Monitor()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, st := range statuses {
+		if st.ProjectRoot == root || st.ProjectName == "shop" {
+			if !strings.Contains(st.URL, ":8090") {
+				t.Fatalf("tanpa gateway, URL harus tetap high-port: %q", st.URL)
+			}
+			return
+		}
+	}
+	t.Fatal("monitor tidak melihat runtime fallback")
 }

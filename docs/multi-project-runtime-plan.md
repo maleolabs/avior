@@ -4,7 +4,7 @@ Dokumen ini adalah rencana penyesuaian agar satu binary `avior` dapat
 menjalankan **N project Laravel secara bersamaan** pada satu device, di
 Linux/macOS/Windows, dengan monitoring yang kontekstual per project.
 
-Status: **Phase 1–6 DONE** (commit c7d4ae8..547b05a); Phase 7 (gateway clean URL, opt-in) dirancang, belum dieksekusi. Sumber review: `internal/runtime`,
+Status: **Phase 1–7 DONE** (Phase 1–6 commit c7d4ae8..19ef58c; Phase 7 gateway clean URL terimplementasi). Sumber review: `internal/runtime`,
 `internal/state`, `internal/processgroup`, `internal/hostname`,
 `internal/proxy`, `internal/trust`, `cmd/`.
 
@@ -486,6 +486,38 @@ Tambah **Phase 7: Gateway Caddy (clean URL)** setelah Phase 6:
 - `TestGatewayConfigAggregatesSites`
 - `TestGatewayReloadOnProjectStartStop`
 - `TestCleanURLFallbackWithoutPrivilege`
+
+### 11.4a Implementasi Phase 7 (selesai)
+
+Komponen `internal/gateway/`:
+
+- `gateway.go` — `Manager` (config aggregator): `Site{Domain, Upstream,
+  HTTPS}`, `BuildConfig` deterministik (sort domain), `RegisterSite`/
+  `UnregisterSite` (parse round-trip config yang kita generate sendiri),
+  atomic render + validasi `caddy validate` (best-effort: cek binary ada).
+- `process.go` — `Process`: start `caddy run`, `Reload` lewat `caddy
+  reload --address <admin>` (zero-downtime, lintas proses), stop. Child
+  terdaftar di registry global (`StateDir/gateway-processes.json`).
+- `state.go` — `GatewayState` persisten (`StateDir/gateway/
+  gateway-state.json`), `SelectAdminPort` (eksplisit > adopt gateway
+  hidup > 2019 unik), `EnsureRunning` (start bila belum hidup),
+  `RegisterSite`/`UnregisterSite` high-level (lock global
+  `state.LockGateway()`), `StopGateway` (stop via registry global +
+  verifikasi identitas), `CanBindStandardPorts` (probe bind :80/:443,
+  fail-closed).
+
+Wiring:
+
+- `ServeOptions.CleanURL`/`GatewayAdminPort` + `StartOptions` + state v2
+  field `CleanURL`/`GatewayAdmin` (monitor URL tanpa port saat CleanURL).
+- `serve`: validasi dini fail-closed (butuh virtual domain + privilege),
+  daftar site ke gateway setelah prepareCaddy (binary + admin port
+  terverifikasi), cleanup otomatis saat Serve kembali (termasuk Ctrl+C):
+  unregister site → gateway stop saat site terakhir pergi.
+- `stop`: unregister site gateway setelah runtime berhenti.
+- `cmd/serve`: flag `--clean-url`, `--gateway-admin-port`.
+- URL output: `URL: https://feather.localhost` (gateway) vs
+  `https://feather.localhost:8090` (high-port default).
 
 ### 11.5 Rekomendasi
 

@@ -119,3 +119,65 @@ func saveRuntime(t *testing.T, root string, st state.RuntimeState) {
 		t.Fatal(err)
 	}
 }
+
+// TestMonitorCleanURLOmitsPort: state CleanURL (terdaftar di gateway
+// :80/:443) → URL user-facing tanpa port, walau Caddy per-proyek mencatat
+// port tinggi (Phase 7).
+func TestMonitorCleanURLOmitsPort(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	root := filepath.Join(t.TempDir(), "shop")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	saveRuntime(t, root, state.RuntimeState{
+		Version:        state.StateVersion,
+		ProjectToken:   "token-shop",
+		ProjectRoot:    root,
+		ProjectName:    "shop",
+		Domain:         "shop.localhost",
+		Ports:          state.PortSet{App: 8012, Caddy: 8090, CaddyAdmin: 2027},
+		CaddyAdminPort: 2027,
+		CleanURL:       true,
+		GatewayAdmin:   2019,
+		MainPID:        state.Process{PID: os.Getpid(), Command: os.Args[0], StartedAt: now},
+	})
+	statuses, err := Monitor()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(statuses) != 1 {
+		t.Fatalf("statuses = %d, want 1", len(statuses))
+	}
+	if want := "https://shop.localhost"; statuses[0].URL != want {
+		t.Fatalf("clean URL = %q, want %q", statuses[0].URL, want)
+	}
+}
+
+// TestMonitorNonCleanURLKeepsPort: tanpa CleanURL, URL tetap memakai port
+// (regresi: default high-port tidak boleh berubah diam-diam).
+func TestMonitorNonCleanURLKeepsPort(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	root := filepath.Join(t.TempDir(), "shop")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	saveRuntime(t, root, state.RuntimeState{
+		Version:        state.StateVersion,
+		ProjectToken:   "token-shop",
+		ProjectRoot:    root,
+		ProjectName:    "shop",
+		Domain:         "shop.localhost",
+		Ports:          state.PortSet{App: 8012, Caddy: 8090, CaddyAdmin: 2027},
+		CaddyAdminPort: 2027,
+		MainPID:        state.Process{PID: os.Getpid(), Command: os.Args[0], StartedAt: now},
+	})
+	statuses, err := Monitor()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "https://shop.localhost:8090"; statuses[0].URL != want {
+		t.Fatalf("URL = %q, want %q", statuses[0].URL, want)
+	}
+}

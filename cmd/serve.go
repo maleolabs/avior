@@ -18,6 +18,8 @@ var (
 	serveVitePort       int
 	serveCaddyPort      int
 	serveCaddyAdminPort int
+	serveCleanURL       bool
+	serveGatewayAdmin   int
 	serveDomain         string
 	serveVirtualDomain  bool
 	serveHTTPS          bool
@@ -82,6 +84,8 @@ var serveCmd = &cobra.Command{
 			VitePort:            serveVitePort,
 			CaddyPort:           serveCaddyPort,
 			CaddyAdminPort:      serveCaddyAdminPort,
+			CleanURL:            serveCleanURL,
+			GatewayAdminPort:    serveGatewayAdmin,
 			Domain:              serveDomain,
 			VirtualDomain:       serveVirtualDomain,
 			HTTPS:               serveHTTPS,
@@ -129,6 +133,8 @@ func init() {
 	serveCmd.Flags().StringVar(&serveDomain, "domain", "", "virtual domain lokal (default: slug nama proyek; .test perlu --hosts)")
 	serveCmd.Flags().IntVar(&serveCaddyPort, "caddy-port", 8080, "port proxy Caddy (localhost-only)")
 	serveCmd.Flags().IntVar(&serveCaddyAdminPort, "caddy-admin-port", 0, "port admin API Caddy (0 = alokasi otomatis)")
+	serveCmd.Flags().BoolVar(&serveCleanURL, "clean-url", false, "URL tanpa port via gateway Caddy pada :80/:443 (butuh privilege; default tetap port tinggi)")
+	serveCmd.Flags().IntVar(&serveGatewayAdmin, "gateway-admin-port", 0, "port admin API gateway clean URL (0 = 2019/adopt)")
 	// Default production (deploy-like); NormalizeServeOptions menurunkannya
 	// untuk development kecuali flag di-set eksplisit.
 	serveCmd.Flags().BoolVar(&serveVirtualDomain, "virtual-domain", true, "aktifkan Caddy reverse proxy")

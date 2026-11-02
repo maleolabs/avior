@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	goruntime "runtime"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/maleolabs/avior/internal/brand"
 	"github.com/maleolabs/avior/internal/discovery"
+	"github.com/maleolabs/avior/internal/gateway"
 	"github.com/maleolabs/avior/internal/hostname"
 	"github.com/maleolabs/avior/internal/mode"
 	"github.com/maleolabs/avior/internal/proxy"
@@ -42,7 +44,9 @@ type ServeOptions struct {
 	Port                 int
 	VitePort             int
 	CaddyPort            int
-	CaddyAdminPort       int // Phase 3: dialokasikan unik per proyek; 0 = default 2019
+	CaddyAdminPort       int  // Phase 3: dialokasikan unik per proyek; 0 = default 2019
+	CleanURL             bool // Phase 7: daftar ke gateway bersama (bind :80/:443)
+	GatewayAdminPort     int  // Phase 7: port admin gateway eksplisit (0 = 2019/adopt)
 	Domain               string
 	ProjectName          string
 	VirtualDomain        bool
@@ -107,6 +111,16 @@ func Serve(ctx context.Context, o ServeOptions) error {
 			return fmt.Errorf("vite port %d dipakai proyek lain; gunakan --vite-port untuk memilih port bebas", o.VitePort)
 		}
 	}
+	// Phase 7: clean URL butuh virtual domain + privilege bind :80/:443.
+	// Fail-closed dini dengan pesan actionable (tidak ada fallback diam-diam:
+	// user memutuskan sendiri melepas --clean-url).
+	if o.CleanURL && !o.VirtualDomain {
+		return fmt.Errorf("--clean-url membutuhkan virtual domain; pakai --virtual-domain atau lepas --clean-url untuk port tinggi")
+	}
+	if o.CleanURL && !gateway.CanBindStandardPorts() {
+		return fmt.Errorf("--clean-url membutuhkan privilege bind :80/:443 (sudo/admin); jalankan dengan privilege atau lepas --clean-url untuk tetap memakai port tinggi")
+	}
+
 	virtual, https, trustCA := NormalizeServeOptions(o.Mode, o.Changed, o.NonInteractive, o.VirtualDomain, o.HTTPS, o.TrustLocalCA)
 	domain := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(o.Domain), "."))
 	if virtual {
@@ -161,11 +175,21 @@ func Serve(ctx context.Context, o ServeOptions) error {
 	caddyConfigPath := ""
 	configKept := false
 	cleanupHost := func() {}
+	// Phase 7: cleanup registrasi gateway saat Serve kembali (runtime
+	// berakhir, termasuk Ctrl+C) — site ke upstream mati hanya menimbulkan
+	// 502 di gateway. UnregisterSite menghentikan gateway saat site
+	// terakhir pergi.
+	gatewaySite := ""
+	gatewayBin := ""
+	gatewayAdmin := 0
 	defer func() {
 		if caddyConfigPath != "" && !configKept {
 			_ = os.Remove(caddyConfigPath)
 		}
 		cleanupHost()
+		if gatewaySite != "" && gatewayBin != "" {
+			_, _ = gateway.UnregisterSite(gatewayBin, gatewaySite, gatewayAdmin)
+		}
 	}()
 	var trustManager *trust.TrustManager
 	if virtual {
@@ -185,6 +209,30 @@ func Serve(ctx context.Context, o ServeOptions) error {
 			}
 			cleanupHost = cleanup
 		}
+	}
+
+	// Phase 7: daftar site ke gateway bersama (satu Caddy bind :80/:443,
+	// routing via Host header). Binary = Caddy per-proyek yang sudah
+	// terverifikasi di prepareCaddy (layanan pertama).
+	if o.CleanURL {
+		selfToken, _ := state.ProjectToken(o.Root)
+		avoid := state.UsedPorts(selfToken)
+		gwAdmin, gerr := gateway.SelectAdminPort(o.GatewayAdminPort, avoid)
+		if gerr != nil {
+			return gerr
+		}
+		caddyBin := services[0].Name
+		if err := gateway.RegisterSite(caddyBin, gateway.Site{
+			Domain:   domain,
+			Upstream: net.JoinHostPort("127.0.0.1", strconv.Itoa(o.Port)),
+			HTTPS:    https,
+		}, gwAdmin); err != nil {
+			return fmt.Errorf("gateway clean URL gagal: %w", err)
+		}
+		gatewaySite = domain
+		gatewayBin = caddyBin
+		gatewayAdmin = gwAdmin
+		o.GatewayAdminPort = gwAdmin
 	}
 
 	// Buffer bounded per child: log child tidak membanjiri output CLI;
@@ -210,6 +258,8 @@ func Serve(ctx context.Context, o ServeOptions) error {
 		Port:           o.Port,
 		Domain:         domain,
 		CaddyAdminPort: adminPort,
+		CleanURL:       o.CleanURL,
+		GatewayAdmin:   o.GatewayAdminPort,
 		Ports:          state.PortSet{App: o.Port, Vite: o.VitePort, Caddy: o.CaddyPort, CaddyAdmin: adminPort},
 		Services:       services,
 		OnServiceState: o.OnServiceState,
@@ -276,9 +326,17 @@ func Serve(ctx context.Context, o ServeOptions) error {
 			printTrustFailures(o.Out, results)
 		}
 		if !o.NonInteractive {
-			if https {
+			switch {
+			case o.CleanURL:
+				// URL bersih: gateway melayani :80/:443 (tanpa port).
+				scheme := "http"
+				if https {
+					scheme = "https"
+				}
+				fmt.Fprintf(o.Out, "%s siap (gateway)\nURL: %s://%s\n", strings.ToUpper(scheme), scheme, domain)
+			case https:
 				fmt.Fprintf(o.Out, "HTTPS siap\nURL: https://%s:%d\nTrust siap\n", domain, o.CaddyPort)
-			} else {
+			default:
 				fmt.Fprintf(o.Out, "URL: http://%s:%d\n", domain, o.CaddyPort)
 			}
 		}
@@ -585,7 +643,11 @@ func printServeIntro(o ServeOptions, domain string, virtual, https bool) {
 			scheme = "https"
 		}
 		fmt.Fprintf(o.Out, "\n╭─ %s SERVE · %s\n", strings.ToUpper(brand.Name), o.Mode)
-		fmt.Fprintf(o.Out, "│  %s://%s:%d → 127.0.0.1:%d\n", scheme, domain, o.CaddyPort, o.Port)
+		if o.CleanURL {
+			fmt.Fprintf(o.Out, "│  %s://%s → 127.0.0.1:%d (gateway)\n", scheme, domain, o.Port)
+		} else {
+			fmt.Fprintf(o.Out, "│  %s://%s:%d → 127.0.0.1:%d\n", scheme, domain, o.CaddyPort, o.Port)
+		}
 		fmt.Fprintln(o.Out, "╰─")
 		return
 	}

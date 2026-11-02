@@ -48,6 +48,8 @@ type StartOptions struct {
 	Domain         string
 	Ports          state.PortSet
 	CaddyAdminPort int
+	CleanURL       bool // Phase 7: proyek terdaftar di gateway (URL tanpa port)
+	GatewayAdmin   int  // port admin gateway bersama (0 bila tidak pakai gateway)
 	Services       []Service
 	OnServiceState func(name, status string)
 }
@@ -169,6 +171,8 @@ func Start(ctx context.Context, o StartOptions) (*Supervision, error) {
 				Port:           o.Port,
 				Ports:          o.Ports,
 				CaddyAdminPort: o.CaddyAdminPort,
+				CleanURL:       o.CleanURL,
+				GatewayAdmin:   o.GatewayAdmin,
 				Owner:          s.owner,
 				MainPID:        s.stateOwn,
 				StartedAt:      s.stateOwn.StartedAt,

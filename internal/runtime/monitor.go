@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/maleolabs/avior/internal/brand"
+	"github.com/maleolabs/avior/internal/gateway"
 	"github.com/maleolabs/avior/internal/processgroup"
 	"github.com/maleolabs/avior/internal/state"
 )
@@ -25,9 +26,17 @@ type ProjectStatus struct {
 
 // statusURL menyusun URL user-facing: HTTPS bila caddy admin tercatat dan
 // domain ada, HTTP jika tidak; port situs disertakan bila bukan 80/443.
+// Phase 7: state CleanURL (terdaftar di gateway :80/:443) → URL tanpa port.
 func statusURL(st state.RuntimeState) string {
 	if st.Domain == "" {
 		return ""
+	}
+	if st.CleanURL {
+		scheme := "http"
+		if st.CaddyAdminPort != 0 {
+			scheme = "https"
+		}
+		return scheme + "://" + st.Domain
 	}
 	scheme := "http"
 	port := st.Ports.Caddy
@@ -196,6 +205,12 @@ func stopWithHooks(project string, wait func(time.Duration), stopManaged func(st
 	}
 	if err := state.RemoveStateIfOwner(statePath, st.MainPID); err != nil {
 		return err
+	}
+	// Phase 7: hapus site dari gateway bersama (stop gateway saat site
+	// terakhir). MainPID.Command = path binary Caddy per-proyek yang
+	// dipakai registrasi serve.
+	if st.CleanURL && st.Domain != "" && st.MainPID.Command != "" {
+		_, _ = gateway.UnregisterSite(st.MainPID.Command, st.Domain, st.GatewayAdmin)
 	}
 	if st.ProjectToken != "" {
 		_ = state.RemoveProject(st.ProjectToken)
