@@ -84,6 +84,10 @@ func Serve(ctx context.Context, o ServeOptions) error {
 	if o.Out == nil {
 		return fmt.Errorf("serve: Out wajib diisi")
 	}
+	// Duplicate guard: proyek yang sama sudah memiliki runtime hidup.
+	if RuntimeRunning(o.Root) {
+		return fmt.Errorf("runtime untuk proyek ini sudah berjalan; gunakan '%s stop %s' untuk menghentikannya", brand.Name, o.Root)
+	}
 	if o.Mode != mode.ModeDevelopment && o.Mode != mode.ModeProduction {
 		return fmt.Errorf("mode harus development atau production")
 	}

@@ -79,8 +79,9 @@ func headerRow() string {
 }
 
 // resolveProject mengembalikan path absolut proyek dari argumen opsional
-// (default: cwd). Selector dipakai langsung oleh runtime (state keyed per
-// root, symlink-resolved).
+// (default: cwd). Selector menerima: path, token, atau nama proyek
+// (state.FindProject). Path harus ada (symlink-resolved); token/nama hanya
+// bila proyek terdaftar di index.
 func resolveProject(args []string) (string, error) {
 	if len(args) > 1 {
 		return "", fmt.Errorf("menerima paling banyak satu selector proyek")
@@ -94,7 +95,20 @@ func resolveProject(args []string) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		return resolvePathSelector(root)
 	}
+	// Selector non-path: cek index (token/name) sebelum memperlakukan
+	// sebagai path.
+	if entry, found, _ := state.FindProject(root); found {
+		if entry.Root != "" {
+			return entry.Root, nil
+		}
+	}
+	return resolvePathSelector(root)
+}
+
+// resolvePathSelector menyelesaikan path absolut (symlink-resolved).
+func resolvePathSelector(root string) (string, error) {
 	abs, err := filepath.Abs(root)
 	if err != nil {
 		return "", err

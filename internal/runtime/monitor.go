@@ -94,6 +94,20 @@ func Monitor() ([]ProjectStatus, error) {
 	return statuses, nil
 }
 
+// RuntimeRunning melaporkan apakah proyek (root) sudah memiliki runtime
+// hidup — duplicate guard untuk `serve`.
+func RuntimeRunning(project string) bool {
+	statePath, _, err := state.Paths(project)
+	if err != nil {
+		return false
+	}
+	st, exists, err := state.LoadState(statePath)
+	if err != nil || !exists {
+		return false
+	}
+	return st.MainPID.PID > 0 && processgroup.ProcessAlive(st.MainPID)
+}
+
 // Attach snapshots only selected project's state. Project must be its root path.
 func Attach(project string) (ProjectStatus, error) {
 	statePath, registry, err := state.Paths(project)
