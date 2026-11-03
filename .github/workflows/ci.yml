@@ -63,7 +63,11 @@ jobs:
           # GOPROXY tidak dimatikan di sini — build butuh module; batasan
           # no-external-network berlaku pada fase eksekusi launcher di bawah.
           $env:GOTOOLCHAIN = 'local'
-          go build -trimpath -buildvcs=false -o avior.exe .
+          # Versi eksplisit dari repo VERSION file (fallback build lokal,
+          # bukan tag rilis) supaya binary e2e tidak berlabel 0.0.0-dev
+          # saat Version() diuji di lintas subcommand.
+          $cli_ver = (Get-Content VERSION).Trim()
+          go build -trimpath -buildvcs=false "-ldflags=-s -w -X github.com/maleolabs/avior/internal/version.version=$cli_ver" -o avior.exe .
           New-Item -ItemType Directory -Force -Path staging/bin | Out-Null
           New-Item -ItemType File -Force -Path staging/bin/caddy_windows_amd64.exe | Out-Null
           Copy-Item avior.exe staging/avior.exe
@@ -125,7 +129,13 @@ jobs:
             os=${target%/*}; arch=${target#*/}
             stage="staging/${os}-${arch}"
             mkdir -p "${stage}/bin"
-            goos=${os} goarch=${arch} CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags "-s -w" -o "${stage}/avior$( [[ ${os} == windows ]] && echo .exe )" .
+            # Versi rilis dari tag (GITHUB_REF_NAME=v1.2.3 -> 1.2.3) lewat
+            # ldflags -X: sumber otoritatif internal/version (file VERSION
+            # di repo hanya fallback build lokal).
+            cli_ver=${GITHUB_REF_NAME#v}
+            goos=${os} goarch=${arch} CGO_ENABLED=0 go build -trimpath -buildvcs=false \
+              -ldflags "-s -w -X github.com/maleolabs/avior/internal/version.version=${cli_ver}" \
+              -o "${stage}/avior$( [[ ${os} == windows ]] && echo .exe )" .
             # Bundel Caddy sesuai pin CLI (Kontrak B). Nama asset upstream:
             # darwin → "mac_", windows → ".zip".
             if [[ ${os} == windows ]]; then

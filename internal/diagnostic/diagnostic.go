@@ -9,18 +9,25 @@ import (
 	"github.com/maleolabs/avior/internal/detect"
 	"github.com/maleolabs/avior/internal/mode"
 	"github.com/maleolabs/avior/internal/ui"
+	"github.com/maleolabs/avior/internal/version"
 )
 
 type Report struct {
-	Mode    mode.Mode       `json:"mode"`
+	Mode mode.Mode `json:"mode"`
+	// Version versi CLI (diagnostik cepat; kosong bila pemanggil tidak
+	// ingin menampilkannya). Tidak di-omit agar JSON tetap stabil.
+	Version string          `json:"version"`
 	OK      bool            `json:"ok"`
 	Checks  []detect.Result `json:"checks"`
 	Missing []string        `json:"missing,omitempty"`
 }
 
+// Check menjalankan prerequisite check untuk mode terpilih. Report.Version
+// diisi dari paket version agar header doctor/verify selalu menampakkan
+// versi CLI (sumber tunggal — lihat doc internal/version).
 func Check(root string, m mode.Mode) Report {
 	checks := detect.ProjectMode(root, m)
-	report := Report{Mode: m, OK: true, Checks: checks}
+	report := Report{Mode: m, OK: true, Checks: checks, Version: version.Version()}
 	for _, check := range checks {
 		if !check.OK {
 			report.OK = false
@@ -35,7 +42,11 @@ func Write(w io.Writer, report Report, asJSON bool) error {
 		return json.NewEncoder(w).Encode(report)
 	}
 	width := ui.TermWidth()
-	if _, err := fmt.Fprintf(w, "\n╭─ %s · %s\n╰─\n", brand.Name, report.Mode); err != nil {
+	header := brand.Name + " · " + string(report.Mode)
+	if report.Version != "" {
+		header += " · v" + report.Version
+	}
+	if _, err := fmt.Fprintf(w, "\n╭─ %s\n╰─\n", header); err != nil {
 		return err
 	}
 	nameW := 24
