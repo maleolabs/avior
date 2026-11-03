@@ -125,7 +125,10 @@ jobs:
           # (sha512) memvalidasi setiap arsip yang diunduh.
           curl -fsSLo cache/caddy-checksums.txt \
             "https://github.com/caddyserver/caddy/releases/download/v${CADDY_VERSION}/caddy_${CADDY_VERSION}_checksums.txt"
-          for target in linux/amd64 darwin/amd64 darwin/arm64 windows/amd64; do
+          # 6 target (Phase 8 Fase 2): archive bundle prompt Q4 dapat memilih
+          # OS mana pun, jadi release harus menyediakan binary untuk setiap
+          # OS x {amd64, arm64}. Caddy upstream menamai darwin "mac_".
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
             os=${target%/*}; arch=${target#*/}
             stage="staging/${os}-${arch}"
             mkdir -p "${stage}/bin"
@@ -157,6 +160,13 @@ jobs:
             # Bundel HARUS identik dengan pin build-time CLI (Kontrak B).
             grep -q "$(sha256sum "${stage}/bin/caddy_${os}_${arch}" | cut -d' ' -f1)" internal/proxy/pins.go \
               || { echo "Caddy ${target} tidak cocok pin internal/proxy/pins.go"; exit 1; }
+            # Raw binary CLI sebagai aset release terpisah (Phase 8 Fase 2):
+            # dipakai archive production saat bundle (download layer Fase 3),
+            # Tanpa launcher/Caddy — arsip install memilikinya sendiri.
+            # Kontrak penamaan: avior_<os>_<arch>[.exe] (sama dengan layout
+            # tools/<brand>/bin di arsip produksi).
+            raw="dist/avior_${os}_${arch}$( [[ ${os} == windows ]] && echo .exe )"
+            cp "${stage}/avior$( [[ ${os} == windows ]] && echo .exe )" "${raw}"
             name="avior-${GITHUB_REF_NAME}-${os}-${arch}"
             if [[ ${os} == windows ]]; then
               cp release/setup.ps1 release/setup.bat "${stage}/"
@@ -166,9 +176,12 @@ jobs:
               tar -czf "dist/${name}.tar.gz" -C "${stage}" avior bin setup.sh
             fi
           done
-          # Kontrak A — release-artifact: SHA256SUMS co-located di release.
-          # Checksum unsigned = integritas, BUKAN autentisitas.
-          (cd dist && sha256sum ./*.tar.gz ./*.zip > SHA256SUMS)
+          # Kontrak A — release-artifact: SHA256SUMS co-located di release,
+          # mencakup arsip install DAN raw binary CLI. Checksum unsigned =
+          # integritas, BUKAN autentisitas. nullglob: glob OS yang tidak
+          # ada (mis. build 4-target lama) tidak boleh membatalkan penulisan.
+          (cd dist && shopt -s nullglob
+            sha256sum ./*.tar.gz ./*.zip avior_linux_* avior_darwin_* avior_windows_* > SHA256SUMS)
       - uses: softprops/action-gh-release@v2
         with:
-          files: dist/*.tar.gz,dist/*.zip,dist/SHA256SUMS
+          files: dist/*.tar.gz,dist/*.zip,dist/avior_*,dist/SHA256SUMS
