@@ -2,8 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"path/filepath"
-	"runtime"
 
 	"github.com/maleolabs/avior/internal/archive"
 	"github.com/maleolabs/avior/internal/brand"
@@ -50,13 +50,37 @@ var archiveCmd = &cobra.Command{
 				renderer.Complete(event.Label)
 			}
 		}
-		// Fase 3: binary CLI bersumber dari release (cliassets). Versi dipin
-		// ke versi CLI berjalan (D2); OS default = OS berjalan sampai prompt
-		// interaktif Fase 4 memilih.
 		opts := archive.Options{Root: flagRoot, Mode: m, DryRun: flagDryRun, Progress: progress}
-		if m == archive.Production && !flagDryRun {
+		if m == archive.Production {
+			// Fase 3: binary CLI bersumber dari release (cliassets). Versi
+			// dipin ke versi CLI berjalan (D2).
 			opts.CLIVersion = version.Version()
-			opts.CLIOS = runtime.GOOS
+			bundle, _ := cmd.Flags().GetString("bundle-cli")
+			if bundle == "" && !flagDryRun {
+				if flagYes {
+					// --yes tidak menebak OS server target — putusan binary
+					// wajib eksplisit meskipun semua konfirmasi disetujui.
+					return fmt.Errorf("--yes tanpa --bundle-cli ambigu: pilih --bundle-cli=<windows|macos|linux|none>")
+				}
+				if !stdinInteractive(cmd.InOrStdin()) {
+					// Non-TTY tanpa putusan eksplisit: fail-closed (D1),
+					// bukan menebak OS target server.
+					return fmt.Errorf("mode production non-interaktif wajib --bundle-cli=<windows|macos|linux|none> (input bukan terminal)")
+				}
+			}
+			// Versi dev (0.0.0-dev) tidak punya release binary: pinning D2
+			// membuat download 404. Tolak lebih dulu kecuali bundle=none
+			// atau dry-run (tidak menyentuh network): error sesegera
+			// mungkin, bukan setengah jalan staging.
+			if bundle != "none" && !flagDryRun && opts.CLIVersion != "" && !version.IsRelease() {
+				return fmt.Errorf("versi CLI %s bukan tag rilis — binary CLI tidak tersedia di release; gunakan --bundle-cli=none atau pasang dari rilis resmi (lihat perintah selfupdate di dokumentasi)", opts.CLIVersion)
+			}
+			opts.BundleCLI = bundle
+			if bundle == "" && !flagDryRun {
+				opts.Interactive = func(w io.Writer, in io.Reader) (string, bool, error) {
+					return archive.PromptBundleCLI(out, in)
+				}
+			}
 		}
 		files, err := archive.Create(opts)
 		if err == nil {
@@ -64,4 +88,11 @@ var archiveCmd = &cobra.Command{
 		}
 		return err
 	},
+}
+
+func init() {
+	// --bundle-cli=<windows|macos|linux|none>: putusan non-interaktif
+	// untuk pemilihan binary Q4. Kosong = prompt TTY (default interaktif);
+	// non-TTY tanpa flag = fail-closed (tidak nebak OS server target).
+	archiveCmd.Flags().String("bundle-cli", "", "sertakan binary CLI: windows, macos, linux, atau none (non-interaktif)")
 }

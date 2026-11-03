@@ -15,6 +15,7 @@ package archive
 import (
 	"archive/tar"
 	"archive/zip"
+	"bufio"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -58,6 +59,15 @@ type Options struct {
 	CLIVersion string
 	// CLIOS target OS binary yang dibundle (Q4: pilihan prompt/flag).
 	CLIOS string
+	// BundleCLI putusan "sertakan binary?" (Q4) dalam mode production:
+	// "", "windows", "macos", "linux", "none". Kosong = tanya prompt
+	// (Interactive wajib non-nil); "none" = arsip tanpa binary CLI.
+	// Non-TTY tanpa nilai eksplisit = fail-closed (D1: tidak ada
+	// asumsi diam-diam).
+	BundleCLI string
+	// Interactive menanyakan pilihan OS bila BundleCLI kosong.
+	// Mengembalikan ("", true, nil) = user menolak bundle.
+	Interactive func(out io.Writer, in io.Reader) (string, bool, error)
 }
 
 // ProgressEvent sengaja output-agnostic agar caller bisa merendernya sebagai
@@ -133,13 +143,21 @@ func Create(o Options) (outputs []string, err error) {
 		}
 	}()
 	if o.Mode == Production {
-		o.progress("Acquire CLI binaries", "phase")
-		binaryOutputs, err := acquireCLIBinaries(context.Background(), archiveRoot, o.CLIVersion, o.CLIOS, o.DryRun, o.Progress, o.CLIBinaries)
+		osName, include, err := o.resolveBundleCLI()
 		if err != nil {
 			return nil, err
 		}
-		outputs = append(outputs, binaryOutputs...)
-		paths = append(paths, binaryOutputs...)
+		if !include {
+			o.progress("Bundling CLI binary", "skipped")
+		} else {
+			o.progress("Acquire CLI binaries", "phase")
+			binaryOutputs, err := acquireCLIBinaries(context.Background(), archiveRoot, o.CLIVersion, osName, o.DryRun, o.Progress, o.CLIBinaries)
+			if err != nil {
+				return nil, err
+			}
+			outputs = append(outputs, binaryOutputs...)
+			paths = append(paths, binaryOutputs...)
+		}
 	}
 	o.progress("Create distribution archives", "phase")
 	if o.DryRun {
@@ -502,6 +520,90 @@ func manifest(root string, m Mode) ([]string, error) {
 	}
 	sort.Strings(unique)
 	return unique, nil
+}
+
+// bundleChoices memetakan label prompt/flag ke nama GOOS rilis aset.
+// "macos" (label user-facing) → "darwin" (nama aset dan runtime.GOOS).
+var bundleChoices = map[string]string{
+	"linux":   "linux",
+	"macos":   "darwin",
+	"windows": "windows",
+}
+
+// resolveBundleCLI menentukan OS binary yang dibundle (Q4):
+//
+//   - BundleCLI eksplisit ("none" → tidak ada binary; "windows"/
+//     "macos"/"linux" → OS tersebut).
+//   - BundleCLI kosong → tanya Interactive (prompt). Hasil "" + include
+//     false = user menolak.
+//   - BundleCLI kosong DAN Interactive kosong → fail-closed (D1):
+//     non-interactive tanpa putusan eksplisit tidak boleh menebak.
+//
+// Validasi input eksplisit: nilai tak dikenal ditolak, bukan di-fallback.
+func (o Options) resolveBundleCLI() (string, bool, error) {
+	if o.BundleCLI != "" {
+		if o.BundleCLI == "none" {
+			return "", false, nil
+		}
+		goos, ok := bundleChoices[o.BundleCLI]
+		if !ok {
+			return "", false, fmt.Errorf("--bundle-cli tidak valid: %q — gunakan windows, macos, linux, atau none", o.BundleCLI)
+		}
+		return goos, true, nil
+	}
+	if o.Interactive == nil {
+		return "", false, fmt.Errorf("mode production non-interaktif wajib --bundle-cli=<windows|macos|linux|none> (input bukan terminal)")
+	}
+	return o.Interactive(os.Stdout, os.Stdin)
+}
+
+// PromptBundleCLI adalah implementasi Interactive default (Q4): tanya
+// dulu apakah binary disertakan, lalu pilih OS. Pola internal/setup
+// (readLine) dan cmd/serve (Fscanln) — stdlib saja, tanpa dependency.
+// Mengembalikan (osName, include, error); include=false = user menolak.
+func PromptBundleCLI(out io.Writer, in io.Reader) (string, bool, error) {
+	fmt.Fprintf(out, "\n  ? Sertakan binary CLI pada arsip? [Y/n] ")
+	line, err := readBundleLine(in)
+	if err != nil {
+		return "", false, fmt.Errorf("membaca jawaban bundle: %w", err)
+	}
+	// Default Y (kasus umum: arsip production butuh runtime CLI).
+	if s := strings.ToLower(strings.TrimSpace(line)); s == "n" || s == "no" {
+		return "", false, nil
+	}
+	fmt.Fprintln(out, "  Pilih target OS binary:")
+	fmt.Fprintln(out, "    1) Windows")
+	fmt.Fprintln(out, "    2) macOS")
+	fmt.Fprintln(out, "    3) Linux")
+	for {
+		fmt.Fprintf(out, "  ? Target OS [1-3]: ")
+		line, err := readBundleLine(in)
+		if err != nil {
+			return "", false, fmt.Errorf("membaca pilihan OS: %w", err)
+		}
+		switch strings.TrimSpace(line) {
+		case "1", "windows":
+			return "windows", true, nil
+		case "2", "macos", "darwin":
+			return "darwin", true, nil
+		case "3", "linux":
+			return "linux", true, nil
+		default:
+			fmt.Fprintln(out, "  Pilihan tidak dikenal — ketik 1, 2, atau 3 (atau windows/macos/linux).")
+		}
+	}
+}
+
+// readBundleLine membaca satu baris jawaban (paritas readLine
+// internal/setup: *bufio.Reader di-reuse agar prompt ganda tidak
+// kehilangan buffer).
+func readBundleLine(in io.Reader) (string, error) {
+	if br, ok := in.(*bufio.Reader); ok {
+		s, err := br.ReadString('\n')
+		return s, err
+	}
+	br := bufio.NewReader(in)
+	return br.ReadString('\n')
 }
 
 func acquireCLIBinaries(ctx context.Context, archiveRoot, cliVersion, osName string, dry bool, progress func(ProgressEvent), ensure func(context.Context, string, string, string) ([]string, error)) ([]string, error) {
