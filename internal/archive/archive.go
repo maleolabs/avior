@@ -17,6 +17,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -28,6 +29,7 @@ import (
 	"time"
 
 	"github.com/maleolabs/avior/internal/brand"
+	"github.com/maleolabs/avior/internal/cliassets"
 )
 
 type Mode string
@@ -47,11 +49,15 @@ type Options struct {
 	BuildNumber string
 	DryRun      bool
 	Progress    func(ProgressEvent)
-	// CLIModuleLocator menentukan direktori modul Go CLI yang dipakai
-	// buildBinaries untuk compile binary per-OS. Default kosong =
-	// DefaultCLIModuleLocator (lihat doc-nya: offline-enabled, urutan
-	// kandidat eksplisit). Override hanya untuk injeksi path di test.
-	CLIModuleLocator func(root string) (string, error)
+	// CLIBinaries menentukan path binary CLI siap pakai yang dibundle
+	// ke arsip produksi (sumber: internal/cliassets.EnsureBinaries —
+	// download dari release, bukan compile lokal). Test meng-inject stub
+	// agar archive tidak menyentuh network.
+	CLIBinaries func(ctx context.Context, cliVersion, cacheDir, osName string) ([]string, error)
+	// CLIVersion versi binary yang dibundle (pinned, plan D2).
+	CLIVersion string
+	// CLIOS target OS binary yang dibundle (Q4: pilihan prompt/flag).
+	CLIOS string
 }
 
 // ProgressEvent sengaja output-agnostic agar caller bisa merendernya sebagai
@@ -127,13 +133,13 @@ func Create(o Options) (outputs []string, err error) {
 		}
 	}()
 	if o.Mode == Production {
-		o.progress("Build CLI binaries", "phase")
-		binaryOutputs, err := buildBinaries(archiveRoot, o.DryRun, o.Progress, o.CLIModuleLocator)
+		o.progress("Acquire CLI binaries", "phase")
+		binaryOutputs, err := acquireCLIBinaries(context.Background(), archiveRoot, o.CLIVersion, o.CLIOS, o.DryRun, o.Progress, o.CLIBinaries)
 		if err != nil {
 			return nil, err
 		}
 		outputs = append(outputs, binaryOutputs...)
-		paths = append(paths, binaryPaths()...)
+		paths = append(paths, binaryOutputs...)
 	}
 	o.progress("Create distribution archives", "phase")
 	if o.DryRun {
@@ -498,139 +504,70 @@ func manifest(root string, m Mode) ([]string, error) {
 	return unique, nil
 }
 
-// DefaultCLIModuleLocator mencari direktori modul Go CLI untuk
-// buildBinaries. CLI ini adalah tool standalone (tidak lagi submodule di
-// dalam source proyek seperti pendahulu), jadi lokasinya tidak boleh
-// diasumsikan. Urutan kandidat eksplisit, masing-masing divalidasi dengan
-// keberadaan go.mod (validasi minimal: go.mod cukup sebagai bukti modul;
-// buildBinaries gagal terpisah bila modul rusak):
-//
-//  1. CLIModule flag eksplisit (ARC_CLIMODULE env / flag --cli-module)
-//     saat user/CI tahu lokasi checkout tool.
-//  2. tools/<brand>/ di dalam root proyek (layout monorepo pendahulu —
-//     masih didukung: checkout yang menempatkan CLI di sana tetap kerja).
-//  3. Root proyek itu sendiri (development: user menjalankan archive dari
-//     checkout tool yang juga merupakan root modul).
-//  4. Direktori executable CLI yang sedang berjalan (release/checkout
-//     tool standalone — kasus utama setelah pemisahan tool dari source
-//     proyek; executable harus berada di dalam tree modul).
-//
-// Error menyebut SEMUA kandidat yang dicoba (pesan actionable, bukan
-// "tidak ditemukan" tanpa konteks). Fail-closed: tidak ada fallback
-// diam-diam ke sembarang direktori yang memuat go.mod.
-func DefaultCLIModuleLocator(root string) (string, error) {
-	var tried []string
-	add := func(dir string) (string, bool) {
-		if dir == "" {
-			return "", false
-		}
-		abs, err := filepath.Abs(dir)
-		if err != nil {
-			tried = append(tried, fmt.Sprintf("%s (abs gagal: %v)", dir, err))
-			return "", false
-		}
-		if _, err := os.Stat(filepath.Join(abs, "go.mod")); err != nil {
-			tried = append(tried, abs)
-			return "", false
-		}
-		return abs, true
+func acquireCLIBinaries(ctx context.Context, archiveRoot, cliVersion, osName string, dry bool, progress func(ProgressEvent), ensure func(context.Context, string, string, string) ([]string, error)) ([]string, error) {
+	archPaths := []string{"amd64", "arm64"}
+	labels := []string{}
+	for _, arch := range archPaths {
+		labels = append(labels, cliassets.AssetName(osName, arch))
 	}
-
-	// 1. Lokasi eksplisit (test/CI/user).
-	if env := os.Getenv(cliModuleEnv); env != "" {
-		if mod, ok := add(env); ok {
-			return mod, nil
-		}
-	}
-
-	candidates := []string{
-		filepath.Join(root, "tools", brand.Name), // 2. layout monorepo pendahulu
-		root,                                     // 3. root = modul CLI (development)
-	}
-	// 4. Direktori executable berjalan: arsip rilis/CHECKOUT tool.
-	if exe, err := os.Executable(); err == nil {
-		if resolved, rerr := filepath.EvalSymlinks(exe); rerr == nil {
-			candidates = append(candidates, filepath.Dir(resolved))
-		} else {
-			candidates = append(candidates, filepath.Dir(exe))
-		}
-	}
-	for _, c := range candidates {
-		if mod, ok := add(c); ok {
-			return mod, nil
-		}
-	}
-	return "", fmt.Errorf("modul CLI tidak ditemukan; kandidat diperiksa: %s", strings.Join(tried, ", "))
-}
-
-// cliModuleEnv adalah variabel lingkungan untuk override lokasi modul CLI
-// (dipakai CI dan test; bukan API publik).
-const cliModuleEnv = "ARC_CLIMODULE"
-
-func binaryPaths() []string {
-	paths := []string{}
-	for _, target := range []struct{ os, arch, suffix string }{
-		{"linux", "amd64", ""}, {"linux", "arm64", ""},
-		{"darwin", "amd64", ""}, {"darwin", "arm64", ""},
-		{"windows", "amd64", ".exe"}, {"windows", "arm64", ".exe"},
-	} {
-		paths = append(paths, filepath.Join("tools", brand.Name, "bin", brand.Name+"_"+target.os+"_"+target.arch+target.suffix))
-	}
-	return paths
-}
-
-func buildBinaries(root string, dry bool, progress func(ProgressEvent), locator func(string) (string, error)) ([]string, error) {
-	specs := []struct{ goos, arch, suffix string }{{"linux", "amd64", ""}, {"linux", "arm64", ""}, {"darwin", "amd64", ""}, {"darwin", "arm64", ""}, {"windows", "amd64", ".exe"}, {"windows", "arm64", ".exe"}}
 	if dry {
-		for _, s := range specs {
+		for _, label := range labels {
 			if progress != nil {
-				progress(ProgressEvent{Label: fmt.Sprintf("Building CLI binary · %s %s", s.goos, s.arch), Status: "skipped"})
+				progress(ProgressEvent{Label: fmt.Sprintf("Bundling CLI binary · %s", label), Status: "skipped"})
 			}
 		}
 		return []string{}, nil
 	}
-	bin := filepath.Join(root, "tools", brand.Name, "bin")
-	// Lokasi modul sekarang keputusan caller (CLIModuleLocator,
-	// default DefaultCLIModuleLocator): tool standalone tidak lagi
-	// diasumsikan tinggal di dalam source proyek (kasus error
-	// "CLI module tidak ditemukan" setelah pemisahan).
-	if locator == nil {
-		locator = DefaultCLIModuleLocator
+	if ensure == nil {
+		ensure = cliassets.EnsureBinaries
 	}
-	module, err := locator(root)
+	sourced, err := ensure(ctx, cliVersion, cliCacheDir(), osName)
 	if err != nil {
 		return nil, err
 	}
+	bin := filepath.Join(archiveRoot, "tools", brand.Name, "bin")
 	if err := os.MkdirAll(bin, 0755); err != nil {
 		return nil, fmt.Errorf("membuat direktori binary %s: %w", bin, err)
 	}
-	for _, s := range specs {
-		label := fmt.Sprintf("Building CLI binary · %s %s", s.goos, s.arch)
-		if progress != nil {
-			progress(ProgressEvent{Label: label, Status: "started"})
-		}
-		path := filepath.Join(bin, brand.Name+"_"+s.goos+"_"+s.arch+s.suffix)
-		c := exec.Command("go", "build", "-trimpath", "-buildvcs=false", "-ldflags", "-s -w", "-o", path, ".") //nolint:gosec -- argumen konstan
-		c.Dir = module
-		c.Env = append(os.Environ(), "GOOS="+s.goos, "GOARCH="+s.arch, "CGO_ENABLED=0")
-		var stderr bytes.Buffer
-		c.Stderr = &stderr
-		if err := c.Run(); err != nil {
-			detail := strings.TrimSpace(stderr.String())
-			if detail == "" {
-				return nil, fmt.Errorf("build CLI %s/%s gagal: %w", s.goos, s.arch, err)
-			}
-			// Hanya expose diagnostik compiler, bukan environment penuh.
-			if len(detail) > 8192 {
-				detail = detail[:8192] + "…"
-			}
-			return nil, fmt.Errorf("build CLI %s/%s gagal: %s (%w)", s.goos, s.arch, detail, err)
+	out := make([]string, 0, len(sourced))
+	for i, src := range sourced {
+		name := labels[i]
+		dst := filepath.Join(bin, name)
+		if err := copyBinary(src, dst); err != nil {
+			return nil, fmt.Errorf("menyalin %s: %w", name, err)
 		}
 		if progress != nil {
-			progress(ProgressEvent{Label: label, Status: "completed"})
+			progress(ProgressEvent{Label: fmt.Sprintf("Bundling CLI binary · %s", name), Status: "completed"})
 		}
+		out = append(out, filepath.Join("tools", brand.Name, "bin", name))
 	}
-	return binaryPaths(), nil
+	return out, nil
+}
+
+// copyBinary menyalin binary terverifikasi ke staging arsip. Mode 0755
+// (executable) — .exe di OS berjalan ditangani WriteEntry tar/zip.
+func copyBinary(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		_ = os.Remove(dst)
+		return err
+	}
+	return out.Close()
+}
+
+// cliCacheDir adalah lokasi cache binary release (plan Q2):
+// StateDir/cli-binaries.
+func cliCacheDir() string {
+	return filepath.Join(brand.StateDir(), "cli-binaries")
 }
 
 func writeTarGz(file, name, root string, paths []string) (err error) {

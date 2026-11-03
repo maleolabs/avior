@@ -3,10 +3,12 @@ package cmd
 import (
 	"fmt"
 	"path/filepath"
+	"runtime"
 
 	"github.com/maleolabs/avior/internal/archive"
 	"github.com/maleolabs/avior/internal/brand"
 	"github.com/maleolabs/avior/internal/ui"
+	"github.com/maleolabs/avior/internal/version"
 	"github.com/spf13/cobra"
 )
 
@@ -48,7 +50,15 @@ var archiveCmd = &cobra.Command{
 				renderer.Complete(event.Label)
 			}
 		}
-		files, err := archive.Create(archive.Options{Root: flagRoot, Mode: m, DryRun: flagDryRun, Progress: progress})
+		// Fase 3: binary CLI bersumber dari release (cliassets). Versi dipin
+		// ke versi CLI berjalan (D2); OS default = OS berjalan sampai prompt
+		// interaktif Fase 4 memilih.
+		opts := archive.Options{Root: flagRoot, Mode: m, DryRun: flagDryRun, Progress: progress}
+		if m == archive.Production && !flagDryRun {
+			opts.CLIVersion = version.Version()
+			opts.CLIOS = runtime.GOOS
+		}
+		files, err := archive.Create(opts)
 		if err == nil {
 			ui.CompletionCard(out, files, m == archive.Production)
 		}

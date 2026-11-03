@@ -117,8 +117,8 @@ yang aman sampai Fase 3 ada cache-nya.
   (template pendahulu). Dengan Q4, prompt menggantikan asumsi ini.
   Cek apakah file-file ini masih digunakan di output `archive` atau
   hanya dead weight sebelum memutuskan hapus/retain.
-- **Periode transisi**: commit `01ed87c` (`DefaultCLIModuleLocator`)
-  menjadi dead code saat Fase 3 selesai — hapus bersih, bukan dibiarkan.
+- **Selesai (Fase 3)**: `DefaultCLIModuleLocator` + `buildBinaries`
+  (commit 01ed87c) dihapus bersih — compile-from-source hilang total.
 
 ## Fase implementasi
 
