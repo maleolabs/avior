@@ -19,7 +19,7 @@ var archiveCmd = &cobra.Command{
 	Aliases: []string{"dist"},
 	Short:   "buat distribusi proyek tar.gz dan zip",
 	Long: "Buat arsip terkurasi. main-source berisi source aplikasi dan source tools (tanpa dependency/build/generated); " +
-		"production berisi runtime vendor/public/build dan binary CLI Linux/macOS/Windows (tanpa source tools/node_modules). " +
+		"production berisi runtime vendor/public/build dan binary CLI (amd64+arm64) satu OS pilihan — diambil dari release, bukan compile lokal (tanpa source tools/node_modules). " +
 		"Alias development tetap didukung untuk main-source.",
 	Example: "  " + brand.Name + " archive main-source\n  " + brand.Name + " archive production --dry-run",
 	Args: func(_ *cobra.Command, args []string) error {

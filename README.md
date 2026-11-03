@@ -62,6 +62,43 @@ Launcher menjalankan binary `avior` dari direktori arsipnya sendiri —
 tidak perlu menambah apa pun ke PATH. Arsip juga memuat binary Caddy
 terpin di `bin/`.
 
+### Update binary CLI (`selfupdate`)
+
+```sh
+avior selfupdate       # tanya konfirmasi
+avior selfupdate --yes # non-interaktif
+avior selfupdate --gc  # bersihkan cache binary versi lama
+```
+
+`selfupdate` mengganti binary CLI host dengan release terbaru (verified
+SHA256SUMS, pemasangan atomik). Berbeda dengan `archive production` yang
+**memin** binary ke versi CLI berjalan — update di luar perintah arsip
+menjaga arsip tetap reproduksibel.
+
+### Binary CLI pada arsip produksi
+
+`avior archive production` tidak meng-compile CLI di mesin pengguna —
+binary diambil dari GitHub Releases ke cache lokal
+(`~/.local/share/<name>/cli-binaries/`), lalu dibundle. Versi selalu
+sesuai CLI yang berjalan (pinned). Saat perintah berjalan interaktif:
+
+1. Tanya apakah binary CLI disertakan (default: ya).
+2. Pilih target OS: Windows / macOS / Linux.
+3. Dua binary (amd64 + arm64) OS terpilih dibundle ke arsip.
+
+Mode non-interaktif wajib putusan eksplisit (fail-closed):
+
+```sh
+avior archive production --bundle-cli=<windows|macos|linux|none>
+```
+
+Mirror internal / CI offline dapat mengganti sumber unduhan lewat
+`<NAME>_RELEASE_BASE_URL` (base URL GitHub Releases).
+
+**Batas yang jujur:** versi CLI yang bukan tag rilis (build dari checkout,
+`0.0.0-dev`) tidak dapat membundle binary — release belum menyediakannya.
+Gunakan `--bundle-cli=none` atau pasang CLI dari rilis resmi.
+
 ## Checksum distribusi
 
 Setiap rilis menyertakan `SHA256SUMS` berisi checksum seluruh arsip

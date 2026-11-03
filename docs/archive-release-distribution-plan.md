@@ -1,6 +1,7 @@
 # Plan: Distribusi Binary CLI Arsip Produksi via GitHub Releases
 
-Status: **plan disetujui (Q1–Q5), siap implementasi**
+Status: **Fase 1–6 selesai** (commit d0cbb9b, ba3dea5, cf9f8f1,
+175db72, 91b0e32 + docs ini)
 Tanggal: 2026-11-03
 Konteks: diskusi "mekanisme bundle binary avior per-OS ke archive" —
 mengganti compile-from-source (`DefaultCLIModuleLocator`, commit 01ed87c)
@@ -112,17 +113,17 @@ yang aman sampai Fase 3 ada cache-nya.
 
 ## Verifikasi tersisa (sebelum/dalam implementasi)
 
-- **`server.sh`/`server.ps1`/`server.bat`** ada di `roots` manifest
-  (`internal/archive/archive.go:70`) dan memilih binary via `uname`
-  (template pendahulu). Dengan Q4, prompt menggantikan asumsi ini.
-  Cek apakah file-file ini masih digunakan di output `archive` atau
-  hanya dead weight sebelum memutuskan hapus/retain.
+- **`server.sh`/`server.ps1`/`server.bat`** — keputusan: RETAIN. File
+  berada di `roots` sebagai path opsional (hanya disertakan jika ada di
+  root proyek); tidak pernah di-generate tool. Q4 menggantikan asumsi
+  pemilihan binary via uname, tetapi menyalin file yang sudah ada
+  (karya pengguna) tetap benar — bukan dead weight.
 - **Selesai (Fase 3)**: `DefaultCLIModuleLocator` + `buildBinaries`
   (commit 01ed87c) dihapus bersih — compile-from-source hilang total.
 
 ## Fase implementasi
 
-### Fase 1 — Fondasi versi (prasyarat)
+### Fase 1 — Fondasi versi (prasyarat) — SELESAI
 
 - Paket `internal/version`: `Version()` via ldflags `-X main.version`
   di CI, fallback membaca `VERSION` file di root modul untuk build
@@ -133,7 +134,7 @@ yang aman sampai Fase 3 ada cache-nya.
 - Output test: unit test `Version()` untuk ketiga jalur (ldflags,
   file, dev fallback).
 
-### Fase 2 — Aset release dari CI
+### Fase 2 — Aset release dari CI — SELESAI
 
 - Murni perubahan workflow, belum menyentuh kode Go.
 - Job `release:` yang ada menambah raw binary `avior_<os>_<arch>`
@@ -144,7 +145,7 @@ yang aman sampai Fase 3 ada cache-nya.
   arsip install yang sudah ada); SHA256SUMS yang sudah ditulis CI
   otomatis memuatnya.
 
-### Fase 3 — Layer download + cache
+### Fase 3 — Layer download + cache — SELESAI
 
 - Paket `internal/cliassets` (jangan perluas `proxy` — beda domain):
   `EnsureBinaries(ctx, version, cacheDir, osName) → []string` (2 binary:
@@ -156,7 +157,7 @@ yang aman sampai Fase 3 ada cache-nya.
 - **Hapus `DefaultCLIModuleLocator` + `buildBinaries` `go build` path**
   (commit 01ed87c menjadi dead code).
 
-### Fase 4 — Wiring `archive production`
+### Fase 4 — Wiring `archive production` — SELESAI
 
 - Step interaktif Q4 setelah "Install production dependencies";
   helper prompt ikut pola `internal/setup.setup.go` (`confirm`).
@@ -169,7 +170,7 @@ yang aman sampai Fase 3 ada cache-nya.
 - `paths` di manifest arsip jadi conditional: hanya 2 binary OS dipilih
   (atau 0 bila "tidak").
 
-### Fase 5 — `avior selfupdate`
+### Fase 5 — `avior selfupdate` — SELESAI
 
 - Subcommand baru: download latest release binary CLI host (2 arch untuk
   OS berjalan — ambil yang cocok `runtime.GOARCH`), verifikasi
@@ -178,7 +179,7 @@ yang aman sampai Fase 3 ada cache-nya.
 - Consent: default non-interactive (jalur `--yes`), prompt saat TTY
   untuk ganti binary sendiri — ini menulis binary yang sedang berjalan.
 
-### Fase 6 — UX error + docs
+### Fase 6 — UX error + docs — SELESAI
 
 - Error "tidak ada koneksi, cache kosong" mencantumkan path cache +
   saran `selfupdate` atau `--bundle-cli=none`.
