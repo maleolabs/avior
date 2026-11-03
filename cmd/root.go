@@ -256,6 +256,16 @@ func isTTY(f *os.File) bool {
 func RunIn(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	flagRoot, flagDryRun, flagYes, trustJSON = "", false, false, false
 	doctorJSON, verifyJSON = jsonOnceFlag{}, jsonOnceFlag{}
+	// Flag non-persistent command (mis. --gc selfupdate) reset manual —
+	// pflag menyimpan nilai parse sebelumnya pada rootCmd shared.
+	if f := selfupdateCmd.Flags().Lookup("gc"); f != nil {
+		f.Value.Set("false")
+		f.Changed = false
+	}
+	if f := archiveCmd.Flags().Lookup("bundle-cli"); f != nil {
+		f.Value.Set("")
+		f.Changed = false
+	}
 	rootCmd.SetIn(stdin)
 	rootCmd.SetOut(stdout)
 	rootCmd.SetErr(stderr)

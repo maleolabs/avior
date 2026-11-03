@@ -53,6 +53,12 @@ func baseURL() string {
 // <NAME>_RELEASE_BASE_URL (NAME huruf besar).
 var baseURLEnv = strings.ToUpper(brand.Name) + "_RELEASE_BASE_URL"
 
+// BaseURLEnv mengembalikan nama variabel lingkungan override base URL
+// release. Dipakai pemanggil (mis. test) agar tidak menulis literal nama.
+func BaseURLEnv() string {
+	return baseURLEnv
+}
+
 // maxSumEntry membatasi ukuran SHA256SUMS yang diparse — file manifest
 // rilis ~6 entri; batas ini hanya penjaga bomb.
 const maxSumEntry = 1 << 20
@@ -109,6 +115,43 @@ func LatestVersion(ctx context.Context) (string, error) {
 
 // AssetName mengembalikan nama aset binary untuk pasangan OS/arch sesuai
 // kontrak penamaan release: <name>_<os>_<arch>[.exe].
+// GarbageCollect menghapus folder-folder versi binary cache
+// (StateDir/cli-binaries/v*/). Dipanggil selfupdate --gc (plan Q2).
+// Mengembalikan path folder yang dihapus — kosong = tidak ada yang
+// dibersihkan. Folder versi valid yang TIDAK ada filenya juga dihapus:
+// cache yang rusak adalah sampah, bukan aset.
+func GarbageCollect() ([]string, error) {
+	base := CacheDir()
+	entries, err := os.ReadDir(base)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var removed []string
+	for _, e := range entries {
+		if !e.IsDir() || !strings.HasPrefix(e.Name(), "v") {
+			continue
+		}
+		dir := filepath.Join(base, e.Name())
+		if err := os.RemoveAll(dir); err != nil {
+			return removed, fmt.Errorf("menghapus %s: %w", dir, err)
+		}
+		removed = append(removed, dir)
+	}
+	return removed, nil
+}
+
+// cliCacheSegment adalah nama folder cache di StateDir.
+const cliCacheSegment = "cli-binaries"
+
+// CacheDir mengembalikan lokasi cache binary release (plan Q2):
+// StateDir/cli-binaries. Satu sumber dipakai archive dan selfupdate.
+func CacheDir() string {
+	return filepath.Join(brand.StateDir(), cliCacheSegment)
+}
+
 func AssetName(osName, arch string) string {
 	exe := ""
 	if osName == "windows" {

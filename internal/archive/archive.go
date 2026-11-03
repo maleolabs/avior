@@ -666,10 +666,10 @@ func copyBinary(src, dst string) error {
 	return out.Close()
 }
 
-// cliCacheDir adalah lokasi cache binary release (plan Q2):
-// StateDir/cli-binaries.
+// cliCacheDir adalah lokasi cache binary release — delegasi ke cliassets
+// (satu sumber: StateDir/cli-binaries).
 func cliCacheDir() string {
-	return filepath.Join(brand.StateDir(), "cli-binaries")
+	return cliassets.CacheDir()
 }
 
 func writeTarGz(file, name, root string, paths []string) (err error) {
