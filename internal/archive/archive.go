@@ -47,6 +47,11 @@ type Options struct {
 	BuildNumber string
 	DryRun      bool
 	Progress    func(ProgressEvent)
+	// CLIModuleLocator menentukan direktori modul Go CLI yang dipakai
+	// buildBinaries untuk compile binary per-OS. Default kosong =
+	// DefaultCLIModuleLocator (lihat doc-nya: offline-enabled, urutan
+	// kandidat eksplisit). Override hanya untuk injeksi path di test.
+	CLIModuleLocator func(root string) (string, error)
 }
 
 // ProgressEvent sengaja output-agnostic agar caller bisa merendernya sebagai
@@ -123,7 +128,7 @@ func Create(o Options) (outputs []string, err error) {
 	}()
 	if o.Mode == Production {
 		o.progress("Build CLI binaries", "phase")
-		binaryOutputs, err := buildBinaries(archiveRoot, o.DryRun, o.Progress)
+		binaryOutputs, err := buildBinaries(archiveRoot, o.DryRun, o.Progress, o.CLIModuleLocator)
 		if err != nil {
 			return nil, err
 		}
@@ -493,6 +498,75 @@ func manifest(root string, m Mode) ([]string, error) {
 	return unique, nil
 }
 
+// DefaultCLIModuleLocator mencari direktori modul Go CLI untuk
+// buildBinaries. CLI ini adalah tool standalone (tidak lagi submodule di
+// dalam source proyek seperti pendahulu), jadi lokasinya tidak boleh
+// diasumsikan. Urutan kandidat eksplisit, masing-masing divalidasi dengan
+// keberadaan go.mod (validasi minimal: go.mod cukup sebagai bukti modul;
+// buildBinaries gagal terpisah bila modul rusak):
+//
+//  1. CLIModule flag eksplisit (ARC_CLIMODULE env / flag --cli-module)
+//     saat user/CI tahu lokasi checkout tool.
+//  2. tools/<brand>/ di dalam root proyek (layout monorepo pendahulu —
+//     masih didukung: checkout yang menempatkan CLI di sana tetap kerja).
+//  3. Root proyek itu sendiri (development: user menjalankan archive dari
+//     checkout tool yang juga merupakan root modul).
+//  4. Direktori executable CLI yang sedang berjalan (release/checkout
+//     tool standalone — kasus utama setelah pemisahan tool dari source
+//     proyek; executable harus berada di dalam tree modul).
+//
+// Error menyebut SEMUA kandidat yang dicoba (pesan actionable, bukan
+// "tidak ditemukan" tanpa konteks). Fail-closed: tidak ada fallback
+// diam-diam ke sembarang direktori yang memuat go.mod.
+func DefaultCLIModuleLocator(root string) (string, error) {
+	var tried []string
+	add := func(dir string) (string, bool) {
+		if dir == "" {
+			return "", false
+		}
+		abs, err := filepath.Abs(dir)
+		if err != nil {
+			tried = append(tried, fmt.Sprintf("%s (abs gagal: %v)", dir, err))
+			return "", false
+		}
+		if _, err := os.Stat(filepath.Join(abs, "go.mod")); err != nil {
+			tried = append(tried, abs)
+			return "", false
+		}
+		return abs, true
+	}
+
+	// 1. Lokasi eksplisit (test/CI/user).
+	if env := os.Getenv(cliModuleEnv); env != "" {
+		if mod, ok := add(env); ok {
+			return mod, nil
+		}
+	}
+
+	candidates := []string{
+		filepath.Join(root, "tools", brand.Name), // 2. layout monorepo pendahulu
+		root,                                     // 3. root = modul CLI (development)
+	}
+	// 4. Direktori executable berjalan: arsip rilis/CHECKOUT tool.
+	if exe, err := os.Executable(); err == nil {
+		if resolved, rerr := filepath.EvalSymlinks(exe); rerr == nil {
+			candidates = append(candidates, filepath.Dir(resolved))
+		} else {
+			candidates = append(candidates, filepath.Dir(exe))
+		}
+	}
+	for _, c := range candidates {
+		if mod, ok := add(c); ok {
+			return mod, nil
+		}
+	}
+	return "", fmt.Errorf("modul CLI tidak ditemukan; kandidat diperiksa: %s", strings.Join(tried, ", "))
+}
+
+// cliModuleEnv adalah variabel lingkungan untuk override lokasi modul CLI
+// (dipakai CI dan test; bukan API publik).
+const cliModuleEnv = "ARC_CLIMODULE"
+
 func binaryPaths() []string {
 	paths := []string{}
 	for _, target := range []struct{ os, arch, suffix string }{
@@ -505,7 +579,7 @@ func binaryPaths() []string {
 	return paths
 }
 
-func buildBinaries(root string, dry bool, progress func(ProgressEvent)) ([]string, error) {
+func buildBinaries(root string, dry bool, progress func(ProgressEvent), locator func(string) (string, error)) ([]string, error) {
 	specs := []struct{ goos, arch, suffix string }{{"linux", "amd64", ""}, {"linux", "arm64", ""}, {"darwin", "amd64", ""}, {"darwin", "arm64", ""}, {"windows", "amd64", ".exe"}, {"windows", "arm64", ".exe"}}
 	if dry {
 		for _, s := range specs {
@@ -516,15 +590,16 @@ func buildBinaries(root string, dry bool, progress func(ProgressEvent)) ([]strin
 		return []string{}, nil
 	}
 	bin := filepath.Join(root, "tools", brand.Name, "bin")
-	module := filepath.Join(root, "tools", brand.Name)
-	// Command umumnya dijalankan dari root aplikasi, tetapi developer juga
-	// bisa menjalankan CLI checkout dari tools/<brand> sendiri.
-	if _, err := os.Stat(filepath.Join(module, "go.mod")); err != nil {
-		if _, moduleErr := os.Stat(filepath.Join(root, "go.mod")); moduleErr == nil {
-			module = root
-		} else {
-			return nil, fmt.Errorf("CLI module tidak ditemukan di %s: %w", module, err)
-		}
+	// Lokasi modul sekarang keputusan caller (CLIModuleLocator,
+	// default DefaultCLIModuleLocator): tool standalone tidak lagi
+	// diasumsikan tinggal di dalam source proyek (kasus error
+	// "CLI module tidak ditemukan" setelah pemisahan).
+	if locator == nil {
+		locator = DefaultCLIModuleLocator
+	}
+	module, err := locator(root)
+	if err != nil {
+		return nil, err
 	}
 	if err := os.MkdirAll(bin, 0755); err != nil {
 		return nil, fmt.Errorf("membuat direktori binary %s: %w", bin, err)

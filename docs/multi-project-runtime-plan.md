@@ -551,3 +551,35 @@ pemilik runtime) — `StopManagedRuntime` mencari child berdasarkan owner,
 bukan child pertama (MainPID tetap child pertama untuk readiness).
 Pemanggil yang merupakan owner sendiri (e2e/TUI in-process) memakai
 `StopManagedChildren` agar tidak men-sinyal diri sendiri.
+
+---
+
+## 13. Catatan Distribusi: Modul CLI Standalone
+
+Pendahulu (tool sebagai bagian dari source proyek) mengasumsikan modul Go
+CLI ada di `tools/<brand>/`. avior adalah repo terpisah — asumsi itu
+memunculkan error `CLI module tidak ditemukan` saat `archive production`.
+
+`internal/archive.DefaultCLIModuleLocator` sekarang menentukan modul Go
+CLI secara eksplisit, urutan kandidat (masing-masing divalidasi via
+`go.mod`, fail-closed tanpa fallback diam-diam):
+
+1. `ARC_CLIMODULE` env — lokasi eksplisit (CI/test/user yang tahu
+   checkout tool).
+2. `tools/<brand>/` di dalam root proyek — layout monorepo pendahulu
+   tetap didukung.
+3. Root proyek sendiri — development: archive dijalankan dari checkout
+   tool.
+4. Direktori executable CLI yang berjalan — release/checkout tool
+   standalone (kasus utama setelah pemisahan; `os.Executable()` +
+   symlink-resolve).
+
+`buildBinaries` menerima locator yang dapat di-inject (`Options.
+CLIModuleLocator`); default `DefaultCLIModuleLocator`. Locator gagal →
+build gagal dengan pesan yang menyebut SEMUA kandidat yang diperiksa
+(actionable, bukan generik).
+
+Kebutuhan binari per-OS tetap sama: `archive production` membangun 6
+target (linux/darwin/windows × amd64/arm64) lewat `go build` cross-compile
+dari modul yang di-resolve, lalu memasukkannya ke manifest produksi di
+`tools/<brand>/bin/avior_<os>_<arch>`.
