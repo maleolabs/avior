@@ -1,0 +1,103 @@
+# Build dan publikasi rilis bertanda (tag v*). Definisi gate kualitas dan
+# compile 6 target dipegang pipeline anvil; runner hanya wiring + packaging
+# Caddy yang spesifik rilis.
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      # anvil didistribusikan via release binary (module path maleolabs.com
+      # bersifat internal): unduh binary resmi, bukan go install.
+      - name: Install anvil
+        run: |
+          curl -fsSL -o anvil "https://github.com/maleolabs/anvil/releases/download/v2.5.0/anvil-linux-amd64"
+          chmod +x anvil
+          echo "$PWD" >> "$GITHUB_PATH"
+      - name: Run CI pipeline
+        run: anvil pipeline ci
+      # Sumber versi otoritatif: tag (v1.2.3 -> 1.2.3) disuntik ke pipeline
+      # build via RELEASE_VERSION; ldflags -X mengeset internal/version.
+      - name: Run build pipeline
+        env:
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: anvil pipeline build --output dist
+      # Satu sumber kebenaran versi Caddy: pin internal/proxy (const
+      # CaddyVersion) agar rilis tidak pernah berbeda dengan CLI.
+      - name: Resolve pinned Caddy version
+        run: |
+          version=$(grep -oE 'CaddyVersion = "[0-9.]+"' internal/proxy/verify.go | grep -oE '[0-9][0-9.]*')
+          echo "CADDY_VERSION=${version}" >> "$GITHUB_ENV"
+      - name: Download Caddy bundles and verify against pins
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p cache
+          curl -fsSLo cache/caddy-checksums.txt \
+            "https://github.com/caddyserver/caddy/releases/download/v${CADDY_VERSION}/caddy_${CADDY_VERSION}_checksums.txt"
+          # Nama asset upstream: darwin "mac_", windows ".zip".
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            os=${target%/*}; arch=${target#*/}
+            if [[ ${os} == windows ]]; then
+              asset="caddy_${CADDY_VERSION}_windows_${arch}.zip"
+            elif [[ ${os} == darwin ]]; then
+              asset="caddy_${CADDY_VERSION}_mac_${arch}.tar.gz"
+            else
+              asset="caddy_${CADDY_VERSION}_${os}_${arch}.tar.gz"
+            fi
+            curl -fsSLo "cache/${asset}" "https://github.com/caddyserver/caddy/releases/download/v${CADDY_VERSION}/${asset}"
+            (cd cache && grep -E "  ${asset}\$" caddy-checksums.txt | sha512sum -c -)
+            # Bundel harus cocok dengan pin internal/proxy/pins.go.
+            if [[ ${os} == windows ]]; then
+              unzip -q -o "cache/${asset}" caddy.exe -d "cache/${os}-${arch}"
+            else
+              mkdir -p "cache/${os}-${arch}"
+              tar -xzf "cache/${asset}" -C "cache/${os}-${arch}" caddy
+            fi
+            grep -q "$(sha256sum "cache/${os}-${arch}/caddy$( [[ ${os} == windows ]] && echo .exe )" | cut -d' ' -f1)" internal/proxy/pins.go \
+              || { echo "Caddy ${target} tidak cocok pin internal/proxy/pins.go"; exit 1; }
+          done
+      - name: Stage release archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p staging
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            os=${target%/*}; arch=${target#*/}
+            stage="staging/${os}-${arch}"
+            mkdir -p "${stage}/bin"
+            cp "dist/avior_${os}_${arch}$( [[ ${os} == windows ]] && echo .exe )" "${stage}/avior$( [[ ${os} == windows ]] && echo .exe )"
+            cp "cache/${os}-${arch}/caddy$( [[ ${os} == windows ]] && echo .exe )" "${stage}/bin/caddy_${os}_${arch}$( [[ ${os} == windows ]] && echo .exe )"
+            name="avior-${GITHUB_REF_NAME}-${os}-${arch}"
+            if [[ ${os} == windows ]]; then
+              cp release/setup.ps1 release/setup.bat "${stage}/"
+              bash release/package-windows.sh "${stage}" "dist/${name}.zip"
+            else
+              cp release/setup.sh "${stage}/"
+              tar -czf "dist/${name}.tar.gz" -C "${stage}" avior bin setup.sh
+            fi
+          done
+      # Checksum semua aset (arsip + raw binary + installer): integritas
+      # tamper-check, bukan autentisitas (unsigned). nullglob menjaga
+      # glob kosong tidak membatalkan penulisan.
+      - name: Generate SHA256SUMS
+        shell: bash
+        run: |
+          (cd dist && shopt -s nullglob
+            sha256sum ./*.tar.gz ./*.zip avior_linux_* avior_darwin_* avior_windows_* > SHA256SUMS)
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.tar.gz,dist/*.zip,dist/avior_*,dist/SHA256SUMS
