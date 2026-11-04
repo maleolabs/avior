@@ -90,6 +90,12 @@ jobs:
               tar -czf "dist/${name}.tar.gz" -C "${stage}" avior bin setup.sh
             fi
           done
+      # Installer script (pola forge-anvil): installer menjadi source of
+      # truth di repo, tiap rilis di-copy ke dist supaya turut checksum
+      # dan dapat diunduh dari /releases/latest/download/install.sh.
+      - name: Stage install scripts
+        run: |
+          cp install.sh install.ps1 dist/
       # Checksum semua aset (arsip + raw binary + installer): integritas
       # tamper-check, bukan autentisitas (unsigned). nullglob menjaga
       # glob kosong tidak membatalkan penulisan.
@@ -97,7 +103,7 @@ jobs:
         shell: bash
         run: |
           (cd dist && shopt -s nullglob
-            sha256sum ./*.tar.gz ./*.zip avior_linux_* avior_darwin_* avior_windows_* > SHA256SUMS)
+            sha256sum ./*.tar.gz ./*.zip avior_linux_* avior_darwin_* avior_windows_* install.sh install.ps1 > SHA256SUMS)
       - uses: softprops/action-gh-release@v2
         with:
-          files: dist/*.tar.gz,dist/*.zip,dist/avior_*,dist/SHA256SUMS
+          files: dist/*.tar.gz,dist/*.zip,dist/avior_*,dist/install.sh,dist/install.ps1,dist/SHA256SUMS
