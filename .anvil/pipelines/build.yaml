@@ -1,0 +1,68 @@
+# Build pipeline: 6 cross-compile target. RELEASE_VERSION (dari environment
+# pemanggil: workflow rilis atau bump script) jadi sumber versi ldflags -X;
+# jika kosong, git describe / fallback VERSION file internal yang ambil alih.
+pipeline:
+    name: build
+    stages:
+        - name: compile
+          tasks:
+            - name: linux-amd64
+              command: sh
+              args:
+                - -c
+                - |
+                  go build -trimpath -buildvcs=false -ldflags "-s -w -X github.com/maleolabs/avior/internal/version.version=${RELEASE_VERSION:-}" -o "${ANVIL_OUTPUT_DIR}/avior_linux_amd64" .
+              env:
+                GOOS: linux
+                GOARCH: amd64
+                CGO_ENABLED: "0"
+            - name: linux-arm64
+              command: sh
+              args:
+                - -c
+                - |
+                  go build -trimpath -buildvcs=false -ldflags "-s -w -X github.com/maleolabs/avior/internal/version.version=${RELEASE_VERSION:-}" -o "${ANVIL_OUTPUT_DIR}/avior_linux_arm64" .
+              env:
+                GOOS: linux
+                GOARCH: arm64
+                CGO_ENABLED: "0"
+            - name: darwin-amd64
+              command: sh
+              args:
+                - -c
+                - |
+                  go build -trimpath -buildvcs=false -ldflags "-s -w -X github.com/maleolabs/avior/internal/version.version=${RELEASE_VERSION:-}" -o "${ANVIL_OUTPUT_DIR}/avior_darwin_amd64" .
+              env:
+                GOOS: darwin
+                GOARCH: amd64
+                CGO_ENABLED: "0"
+            - name: darwin-arm64
+              command: sh
+              args:
+                - -c
+                - |
+                  go build -trimpath -buildvcs=false -ldflags "-s -w -X github.com/maleolabs/avior/internal/version.version=${RELEASE_VERSION:-}" -o "${ANVIL_OUTPUT_DIR}/avior_darwin_arm64" .
+              env:
+                GOOS: darwin
+                GOARCH: arm64
+                CGO_ENABLED: "0"
+            - name: windows-amd64
+              command: sh
+              args:
+                - -c
+                - |
+                  go build -trimpath -buildvcs=false -ldflags "-s -w -X github.com/maleolabs/avior/internal/version.version=${RELEASE_VERSION:-}" -o "${ANVIL_OUTPUT_DIR}/avior_windows_amd64.exe" .
+              env:
+                GOOS: windows
+                GOARCH: amd64
+                CGO_ENABLED: "0"
+            - name: windows-arm64
+              command: sh
+              args:
+                - -c
+                - |
+                  go build -trimpath -buildvcs=false -ldflags "-s -w -X github.com/maleolabs/avior/internal/version.version=${RELEASE_VERSION:-}" -o "${ANVIL_OUTPUT_DIR}/avior_windows_arm64.exe" .
+              env:
+                GOOS: windows
+                GOARCH: arm64
+                CGO_ENABLED: "0"

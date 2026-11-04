@@ -52,26 +52,9 @@ static OSStatus remove_trust(const UInt8 *bytes, CFIndex length) {
 import "C"
 
 import (
-	"crypto/x509"
-	"encoding/pem"
 	"fmt"
-	"os"
 	"unsafe"
 )
-
-func macOSCertificate(path string) ([]byte, error) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	if block, _ := pem.Decode(b); block != nil {
-		b = block.Bytes
-	}
-	if _, err := x509.ParseCertificate(b); err != nil {
-		return nil, fmt.Errorf("parse root certificate: %w", err)
-	}
-	return b, nil
-}
 
 func installMacOSTrust(path string) error {
 	b, err := macOSCertificate(path)

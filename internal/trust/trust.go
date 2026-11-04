@@ -6,8 +6,10 @@ package trust
 
 import (
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"os"
 	"os/exec"
@@ -19,6 +21,23 @@ import (
 	"github.com/maleolabs/avior/internal/brand"
 	"github.com/maleolabs/avior/internal/state"
 )
+
+// macOSCertificate membaca dan memvalidasi root certificate macOS; dipakai
+// varian cgo (Keychain) maupun nocgo (security CLI). Definisi tunggal di file
+// netral karena helper pure-Go tidak bergantung build tag.
+func macOSCertificate(path string) ([]byte, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	if block, _ := pem.Decode(b); block != nil {
+		b = block.Bytes
+	}
+	if _, err := x509.ParseCertificate(b); err != nil {
+		return nil, fmt.Errorf("parse root certificate: %w", err)
+	}
+	return b, nil
+}
 
 // ChromiumBinary mendeteksi browser keluarga Chromium, termasuk instalasi
 // Brave native yang tidak terekspos lewat PATH.

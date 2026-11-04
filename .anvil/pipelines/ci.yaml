@@ -1,0 +1,21 @@
+pipeline:
+    name: ci
+    stages:
+        - name: quality
+          tasks:
+            - name: gofmt
+              command: sh
+              args:
+                - -c
+                - |
+                  out="$(gofmt -l .)"
+                  if [ -n "$out" ]; then
+                    echo "gofmt reformat needed:"; echo "$out"
+                    exit 1
+                  fi
+            - name: vet
+              command: go
+              args: [vet, ./...]
+            - name: unit-tests
+              command: go
+              args: [test, ./...]

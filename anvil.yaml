@@ -1,0 +1,7 @@
+project:
+    name: avior
+    version: 0.0.0
+    description: ""
+artifact:
+    include: []
+    exclude: []
