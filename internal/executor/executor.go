@@ -79,7 +79,15 @@ func windowsCommand(name string, args []string) (string, []string) {
 			if !safeBatchPath(name) {
 				return name, args
 			}
-			return "cmd.exe", append([]string{"/d", "/s", "/c", `"` + name + `"`}, args...)
+			// cmd /s strips first+last quote lalu mem-parsed sisa sebagai
+			// command line; kutip path hanya bila ada spasi (safeBatchPath
+			// sudah memblokir karakter khusus cmd). Quote paksa membuat
+			// cmd menerjemahkan literal sebagai nama program.
+			script := name
+			if strings.ContainsAny(name, " \t") {
+				script = `"` + name + `"`
+			}
+			return "cmd.exe", append([]string{"/d", "/s", "/c", script}, args...)
 		}
 		return name, args
 	}
@@ -90,7 +98,11 @@ func windowsCommand(name string, args []string) (string, []string) {
 				if !safeBatchPath(candidate) {
 					return candidate, args
 				}
-				return "cmd.exe", append([]string{"/d", "/s", "/c", `"` + candidate + `"`}, args...)
+				script := candidate
+				if strings.ContainsAny(candidate, " \t") {
+					script = `"` + candidate + `"`
+				}
+				return "cmd.exe", append([]string{"/d", "/s", "/c", script}, args...)
 			}
 			return candidate, args
 		}

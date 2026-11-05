@@ -47,7 +47,14 @@ func Version(name string, args ...string) Result {
 				return Result{name, false, "argumen tidak aman untuk skrip Windows"}
 			}
 		}
-		command, commandArgs = "cmd.exe", append([]string{"/d", "/s", "/c", `"` + p + `"`}, args...)
+		// cmd /s strips first+last quote lalu mem-parsed sisa sebagai
+		// command line; kutip path hanya bila ada spasi (safeBatchPath
+		// sudah memblokir karakter khusus cmd).
+		script := p
+		if strings.ContainsAny(p, " \t") {
+			script = `"` + p + `"`
+		}
+		command, commandArgs = "cmd.exe", append([]string{"/d", "/s", "/c", script}, args...)
 	}
 	out, err := exec.Command(command, commandArgs...).CombinedOutput()
 	detail := conciseDetail(string(out))

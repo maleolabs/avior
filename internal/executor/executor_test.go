@@ -35,8 +35,14 @@ func TestWindowsCommandWrapsCmdScripts(t *testing.T) {
 		t.Skip("Windows command line only")
 	}
 	got, args := windowsCommand(`C:\Program Files\Composer\composer.cmd`, []string{"install", "--no-interaction"})
-	// /d /s /c "<script>" + user args → 3 + 1 + len(args).
+	// Path mengandung spasi → di-quote; /d /s /c script + user args.
 	if got != "cmd.exe" || len(args) != 6 || args[0] != "/d" || args[3] != `"C:\Program Files\Composer\composer.cmd"` {
+		t.Fatalf("command=(%q,%q)", got, args)
+	}
+	// Path tanpa spasi tidak di-quote — quote paksa membuat cmd menerjemah
+	// literal sebagai nama program (EscapeArg menambah layer quote).
+	got, args = windowsCommand(`C:\tools\composer.cmd`, nil)
+	if got != "cmd.exe" || len(args) != 4 || args[3] != `C:\tools\composer.cmd` {
 		t.Fatalf("command=(%q,%q)", got, args)
 	}
 }
