@@ -3,6 +3,7 @@ package trust
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -31,6 +32,11 @@ func TestChromiumBinaryPrefersPathAndFindsNativeBrave(t *testing.T) {
 }
 
 func TestFirefoxProfilesParsesRelativeAndAbsoluteEntries(t *testing.T) {
+	// NSS/Firefox path parsing ini menarget layout Linux (/home, /tmp);
+	// di Windows impl memakai filepath.Join → backslash.
+	if runtime.GOOS == "windows" {
+		t.Skip("firefox NSS profile layout Linux-only")
+	}
 	profiles := firefoxProfiles("[Profile0]\nPath=abc.default\nIsRelative=1\n[Profile1]\nPath=/tmp/firefox\nIsRelative=0\n[General]\nStartWithLastProfile=1\n", "/home/test/.mozilla/firefox")
 	if len(profiles) != 2 || profiles[0].Path != "/home/test/.mozilla/firefox/abc.default" || profiles[1].Path != "/tmp/firefox" {
 		t.Fatalf("profiles = %#v", profiles)
@@ -48,6 +54,11 @@ func TestFirefoxCertutilArgsAreStableAndIdempotent(t *testing.T) {
 }
 
 func TestChromiumNSSPathsAndCertutilArgs(t *testing.T) {
+	// NSS path menarget layout Linux; di Windows impl memakai
+	// filepath.Join → backslash (target NSS Chromium Windows berbeda).
+	if runtime.GOOS == "windows" {
+		t.Skip("chromium NSS db layout Linux-only")
+	}
 	// Path tunggal diganti chromiumNSSPaths (review H7): kandidat ganda,
 	// yang ada saja; kosong → fallback kandidat pertama.
 	if got, want := chromiumNSSPaths("/home/test", func(string) (os.FileInfo, error) { return nil, os.ErrNotExist })[0], "/home/test/.pki/nssdb"; got != want {

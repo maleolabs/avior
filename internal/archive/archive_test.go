@@ -8,6 +8,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -76,12 +77,17 @@ func TestAcquireCLIBinariesBundlesTwo(t *testing.T) {
 			t.Errorf("path manifest bukan layout tools/<brand>/bin: %s", rel)
 		}
 	}
-	// Staging fisik: binary ada dan executable.
+	// Staging fisik: binary ada dan executable. Exec bit POSIX-only:
+	// Windows memetakan read-only flag ke mode (666), bit 0100 tidak
+	// bermakna — existence check saja di sana.
 	for _, name := range []string{cliassets.AssetName("darwin", "amd64"), cliassets.AssetName("darwin", "arm64")} {
 		p := filepath.Join(root, "tools", brand.Name, "bin", name)
 		info, err := os.Stat(p)
 		if err != nil {
 			t.Errorf("staging binary hilang %s: %v", name, err)
+			continue
+		}
+		if runtime.GOOS == "windows" {
 			continue
 		}
 		if info.Mode().Perm()&0o100 == 0 {
