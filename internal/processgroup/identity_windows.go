@@ -18,7 +18,6 @@ var (
 
 const (
 	processQueryLimitedInfo = 0x1000
-	processVMRead           = 0x0010
 	processTerminate        = 0x0001
 )
 
@@ -27,16 +26,17 @@ const (
 // CreationTime FILETIME (hex) — unik per proses hidup, membuat reuse-PID
 // setelah exit terdeteksi, padan start-time di sisi Unix (ps -o lstart).
 //
-// PROCESS_QUERY_LIMITED_INFORMATION|PROCESS_VM_READ tidak butuh privilege;
-// bila pid tidak bisa dibuka (tidak ada, atau ERROR_ACCESS_DENIED untuk
-// proses sesi lain) kedua nilai dikembalikan kosong — pemanggil wajib
-// memperlakukan identitas kosong sebagai "tidak dikenal" dan mematikan
-// aksi destruktif (lihat recordMatchesProcess).
+// Hanya PROCESS_QUERY_LIMITED_INFORMATION — cukup untuk query image/times,
+// tidak butuh PROCESS_VM_READ (terutama child console seperti cmd.exe yang
+// membungkus timeout). Bila pid tidak bisa dibuka (tidak ada, atau
+// ERROR_ACCESS_DENIED untuk proses sesi lain) kedua nilai dikembalikan
+// kosong — pemanggil wajib memperlakukan identitas kosong sebagai "tidak
+// dikenal" dan mematikan aksi destruktif (lihat recordMatchesProcess).
 func processIdentity(pid int) (string, string) {
 	if pid <= 0 {
 		return "", ""
 	}
-	h, _, _ := openProcess.Call(processQueryLimitedInfo|processVMRead, 0, uintptr(pid))
+	h, _, _ := openProcess.Call(processQueryLimitedInfo, 0, uintptr(pid))
 	if h == 0 {
 		return "", ""
 	}
@@ -78,7 +78,7 @@ func processGone(pid int) bool {
 }
 
 func terminatePID(pid int) {
-	h, _, _ := openProcess.Call(processQueryLimitedInfo|processVMRead|processTerminate, 0, uintptr(pid))
+	h, _, _ := openProcess.Call(processQueryLimitedInfo|processTerminate, 0, uintptr(pid))
 	if h == 0 {
 		return
 	}
