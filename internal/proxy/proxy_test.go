@@ -23,6 +23,30 @@ import (
 	"github.com/maleolabs/avior/internal/brand"
 )
 
+// writeCaddyArchive menulis arsip rilis Caddy mock: zip di Windows,
+// tar.gz di platform lain — FetchCaddy memilih format+nama entry sesuai
+// GOOS (entry Windows "caddy.exe").
+func writeCaddyArchive(w http.ResponseWriter, content string) {
+	name := "caddy"
+	if stdruntime.GOOS == "windows" {
+		name += ".exe"
+	}
+	if stdruntime.GOOS == "windows" {
+		zw := zip.NewWriter(w)
+		if fw, err := zw.Create(name); err == nil {
+			_, _ = fw.Write([]byte(content))
+		}
+		_ = zw.Close()
+		return
+	}
+	gz := gzip.NewWriter(w)
+	tw := tar.NewWriter(gz)
+	_ = tw.WriteHeader(&tar.Header{Name: name, Mode: 0755, Size: int64(len(content)), Typeflag: tar.TypeReg})
+	_, _ = tw.Write([]byte(content))
+	_ = tw.Close()
+	_ = gz.Close()
+}
+
 func TestCaddyArchivePlatformName(t *testing.T) {
 	// Upstream menamai asset: darwin → "mac_", windows → ".zip".
 	wantOS := stdruntime.GOOS
@@ -128,12 +152,7 @@ func TestFetchCaddyFailsClosedWithoutPin(t *testing.T) {
 	pinOverride = func(_, _ string) (string, bool) { return "", false }
 	defer func() { pinOverride = oldPin }()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gz := gzip.NewWriter(w)
-		tw := tar.NewWriter(gz)
-		_ = tw.WriteHeader(&tar.Header{Name: "caddy", Mode: 0755, Size: 4, Typeflag: tar.TypeReg})
-		_, _ = tw.Write([]byte("data"))
-		_ = tw.Close()
-		_ = gz.Close()
+		writeCaddyArchive(w, "data")
 	}))
 	defer server.Close()
 	old := urlOverride
@@ -243,12 +262,7 @@ func TestFetchCaddyRejectsPinMismatch(t *testing.T) {
 	pinOverride = func(_, _ string) (string, bool) { return "deadbeef", true }
 	defer func() { pinOverride = oldPin }()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gz := gzip.NewWriter(w)
-		tw := tar.NewWriter(gz)
-		_ = tw.WriteHeader(&tar.Header{Name: "caddy", Mode: 0755, Size: 4, Typeflag: tar.TypeReg})
-		_, _ = tw.Write([]byte("data"))
-		_ = tw.Close()
-		_ = gz.Close()
+		writeCaddyArchive(w, "data")
 	}))
 	defer server.Close()
 	old := urlOverride
@@ -279,12 +293,7 @@ func TestFetchCaddyEEXISTKeepsExistingBinary(t *testing.T) {
 	pinOverride = func(_, _ string) (string, bool) { return hex.EncodeToString(pin[:]), true }
 	defer func() { pinOverride = oldPin }()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gz := gzip.NewWriter(w)
-		tw := tar.NewWriter(gz)
-		_ = tw.WriteHeader(&tar.Header{Name: "caddy", Mode: 0755, Size: 4, Typeflag: tar.TypeReg})
-		_, _ = tw.Write([]byte("data"))
-		_ = tw.Close()
-		_ = gz.Close()
+		writeCaddyArchive(w, "data")
 	}))
 	defer server.Close()
 	old := urlOverride
