@@ -24,6 +24,16 @@ func sleepCmd() *exec.Cmd {
 	return exec.Command("sleep", "30")
 }
 
+// sleepCmdName mengembalikan nama executable yang dicatat command —
+// ProcessAlive membandingkan base-name; di Windows cmd.exe membungkus
+// timeout (tidak ada util sleep eksternal).
+func sleepCmdName(cmd *exec.Cmd) string {
+	if runtime.GOOS == "windows" {
+		return "cmd.exe"
+	}
+	return cmd.Path
+}
+
 func TestWriteProcessRegistryChmodFailureCleansTempAndPreservesRegistry(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "registry.json")
@@ -100,7 +110,7 @@ func TestStopManagedProcessRefusesChangedIdentity(t *testing.T) {
 	if StopManagedProcess(path, cmd.Process.Pid) {
 		t.Fatal("stop accepted changed process identity")
 	}
-	if !ProcessAlive(state.Process{PID: cmd.Process.Pid, Command: "sleep", StartedAt: time.Now()}) {
+	if !ProcessAlive(state.Process{PID: cmd.Process.Pid, Command: sleepCmdName(cmd), StartedAt: time.Now()}) {
 		t.Fatal("process stopped despite changed identity")
 	}
 }

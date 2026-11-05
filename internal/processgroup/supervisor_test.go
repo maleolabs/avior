@@ -104,6 +104,9 @@ func TestTerminateSleepReapedOnce(t *testing.T) {
 // jalur failed-startup H5) — jadi stub menulis file "ready" setelah trap,
 // dan test menunggu file itu sebelum Terminate.
 func TestTerminateEscalatesToKill(t *testing.T) {
+	if goruntime.GOOS == "windows" {
+		t.Skip("semantik sinyal Unix (TERM/KILL) tidak ada di Windows")
+	}
 	sh, err := exec.LookPath("sh")
 	if err != nil {
 		t.Skip("binary `sh` tidak ditemukan; test eskalasi butuh trap POSIX")

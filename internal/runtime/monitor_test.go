@@ -74,6 +74,16 @@ func sleepCmd() *exec.Cmd {
 	return exec.Command("sleep", "60")
 }
 
+// sleepCmdName mengembalikan nama executable untuk pencatat command state;
+// ProcessAlive membandingkan base-name. Di Windows cmd.exe membungkus
+// timeout (tidak ada util sleep eksternal).
+func sleepCmdName(cmd *exec.Cmd) string {
+	if runtime.GOOS == "windows" {
+		return "cmd.exe"
+	}
+	return cmd.Path
+}
+
 func TestStopStopsManagedRuntimeProcess(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("USERPROFILE", t.TempDir())
@@ -118,7 +128,7 @@ func TestStopRetainsStateWhenProcessRemainsAlive(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
-	st := state.RuntimeState{ProjectRoot: root, MainPID: state.Process{PID: cmd.Process.Pid, Command: "sleep", StartedAt: time.Now()}}
+	st := state.RuntimeState{ProjectRoot: root, MainPID: state.Process{PID: cmd.Process.Pid, Command: sleepCmdName(cmd), StartedAt: time.Now()}}
 	if err := state.SaveState(statePath, st); err != nil {
 		t.Fatal(err)
 	}
