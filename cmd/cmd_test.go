@@ -114,6 +114,7 @@ func TestDiagnosticJSONFalseOnCLIErrors(t *testing.T) {
 
 func TestMonitorAndProjectScopedCommands(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
 	a, b := filepath.Join(t.TempDir(), "project-a"), filepath.Join(t.TempDir(), "project-b")
 	if err := os.MkdirAll(a, 0700); err != nil {
 		t.Fatal(err)

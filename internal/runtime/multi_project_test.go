@@ -13,6 +13,7 @@ import (
 // menampilkan name, status, pid, url/ports, root masing-masing.
 func TestMonitorListsMultipleProjectsContextual(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
 	a := filepath.Join(t.TempDir(), "shop")
 	b := filepath.Join(t.TempDir(), "blog")
 	for _, root := range []string{a, b} {
@@ -75,6 +76,7 @@ func TestMonitorListsMultipleProjectsContextual(t *testing.T) {
 // menggagalkan monitor entry lain.
 func TestMonitorToleratesCorruptStateFile(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
 	a := filepath.Join(t.TempDir(), "ok")
 	b := filepath.Join(t.TempDir(), "corrupt")
 	for _, root := range []string{a, b} {
@@ -125,6 +127,7 @@ func saveRuntime(t *testing.T, root string, st state.RuntimeState) {
 // port tinggi (Phase 7).
 func TestMonitorCleanURLOmitsPort(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
 	root := filepath.Join(t.TempDir(), "shop")
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		t.Fatal(err)
@@ -158,6 +161,7 @@ func TestMonitorCleanURLOmitsPort(t *testing.T) {
 // (regresi: default high-port tidak boleh berubah diam-diam).
 func TestMonitorNonCleanURLKeepsPort(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
 	root := filepath.Join(t.TempDir(), "shop")
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		t.Fatal(err)

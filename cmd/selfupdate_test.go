@@ -77,6 +77,7 @@ func hexSha(t *testing.T, data []byte) string {
 // TestSelfupdateGCNoCache: GC tanpa cache = pesan bersih, exit 0.
 func TestSelfupdateGCNoCache(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	var out bytes.Buffer
 	if err := RunIn([]string{"selfupdate", "--gc"}, strings.NewReader(""), &out, &out); err != nil {
@@ -91,6 +92,7 @@ func TestSelfupdateGCNoCache(t *testing.T) {
 func TestSelfupdateGCRemovesOldVersions(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	t.Setenv("XDG_DATA_HOME", home)
 	cache := cliassets.CacheDir()
 	for _, v := range []string{"v1.0.0", "v2.0.0"} {

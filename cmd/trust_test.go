@@ -32,7 +32,8 @@ func trustFixture(t *testing.T) string {
 		}
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("HOME", t.TempDir()) // state dir + manifest terisolasi
+	t.Setenv("HOME", t.TempDir())        // state dir + manifest terisolasi
+	t.Setenv("USERPROFILE", t.TempDir()) // Windows: os.UserHomeDir baca USERPROFILE
 	return root
 }
 

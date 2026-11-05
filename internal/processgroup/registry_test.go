@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"sync"
 	"testing"
@@ -12,6 +13,16 @@ import (
 
 	"github.com/maleolabs/avior/internal/state"
 )
+
+// sleepCmd mengembalikan command lintas-OS yang hidup sementara: `sleep`
+// POSIX, `timeout /nobreak` via cmd.exe di Windows (tidak ada sleep
+// bawaan). Dipakai test yang butuh proses dummy.
+func sleepCmd() *exec.Cmd {
+	if runtime.GOOS == "windows" {
+		return exec.Command("cmd.exe", "/c", "timeout", "/t", "30", "/nobreak")
+	}
+	return exec.Command("sleep", "30")
+}
 
 func TestWriteProcessRegistryChmodFailureCleansTempAndPreservesRegistry(t *testing.T) {
 	dir := t.TempDir()
@@ -67,9 +78,9 @@ func TestUnregisterProcessRemovesOnlyExactRegistration(t *testing.T) {
 }
 
 func TestStopManagedProcessRefusesChangedIdentity(t *testing.T) {
-	cmd := exec.Command("sleep", "60")
+	cmd := sleepCmd()
 	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
+		t.Skipf("helper process unavailable: %v", err)
 	}
 	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
 	path := filepath.Join(t.TempDir(), "runtime-processes.json")
@@ -217,7 +228,7 @@ func TestRegistryAPIsSerializeAcrossProcesses(t *testing.T) {
 
 func TestStopManagedProcessAllowsConcurrentUnregister(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "registry.json")
-	cmd := exec.Command("sleep", "30")
+	cmd := sleepCmd()
 	if err := cmd.Start(); err != nil {
 		t.Skipf("sleep unavailable: %v", err)
 	}
@@ -257,7 +268,7 @@ func TestStopManagedProcessAllowsConcurrentUnregister(t *testing.T) {
 
 func TestStopManagedRuntimeAllowsConcurrentUnregister(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "registry.json")
-	cmd := exec.Command("sleep", "30")
+	cmd := sleepCmd()
 	if err := cmd.Start(); err != nil {
 		t.Skipf("sleep unavailable: %v", err)
 	}

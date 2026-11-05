@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 
 func TestMonitorAndAttachStayProjectScoped(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
 	rootA, rootB := filepath.Join(t.TempDir(), "a"), filepath.Join(t.TempDir(), "b")
 	for i, root := range []string{rootA, rootB} {
 		statePath, _, err := state.Paths(root)
@@ -62,8 +64,19 @@ func TestMonitorAndAttachStayProjectScoped(t *testing.T) {
 	}
 }
 
+// sleepCmd mengembalikan command lintas-OS yang hidup ~d menit: `sleep`
+// di POSIX, `timeout /nobreak` via cmd.exe di Windows (tidak ada sleep
+// bawaan). Dipakai test stop/monitor yang butuh proses dummy.
+func sleepCmd() *exec.Cmd {
+	if runtime.GOOS == "windows" {
+		return exec.Command("cmd.exe", "/c", "timeout", "/t", "60", "/nobreak")
+	}
+	return exec.Command("sleep", "60")
+}
+
 func TestStopStopsManagedRuntimeProcess(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
 	root := filepath.Join(t.TempDir(), "project")
 	if err := os.MkdirAll(root, 0700); err != nil {
 		t.Fatal(err)
@@ -73,7 +86,7 @@ func TestStopStopsManagedRuntimeProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cmd := exec.Command("sleep", "60")
+	cmd := sleepCmd()
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -94,12 +107,13 @@ func TestStopStopsManagedRuntimeProcess(t *testing.T) {
 
 func TestStopRetainsStateWhenProcessRemainsAlive(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
 	root := filepath.Join(t.TempDir(), "project")
 	statePath, _, err := state.Paths(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("sleep", "60")
+	cmd := sleepCmd()
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -121,6 +135,7 @@ func TestStopRetainsStateWhenProcessRemainsAlive(t *testing.T) {
 
 func TestStopTimeoutRetainsState(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
 	root := filepath.Join(t.TempDir(), "project")
 	statePath, _, err := state.Paths(root)
 	if err != nil {
@@ -143,6 +158,7 @@ func TestStopTimeoutRetainsState(t *testing.T) {
 
 func TestStopRejectsProjectStateMismatch(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
 	root := filepath.Join(t.TempDir(), "project")
 	statePath := mustStatePath(t, root)
 	if err := state.SaveState(statePath, state.RuntimeState{ProjectRoot: filepath.Join(t.TempDir(), "other"), MainPID: state.Process{PID: 12345}}); err != nil {
@@ -158,6 +174,7 @@ func TestStopRejectsProjectStateMismatch(t *testing.T) {
 // seluruhnya (perubahan Phase 1: monitor toleran terhadap entry rusak).
 func TestMonitorSkipsStatePathProjectMismatch(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
 	root := filepath.Join(t.TempDir(), "project")
 	if err := state.SaveState(mustStatePath(t, root), state.RuntimeState{ProjectRoot: filepath.Join(t.TempDir(), "other")}); err != nil {
 		t.Fatal(err)
@@ -173,6 +190,7 @@ func TestMonitorSkipsStatePathProjectMismatch(t *testing.T) {
 
 func TestAttachRejectsProjectStateMismatch(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
 	root := filepath.Join(t.TempDir(), "project")
 	if err := state.SaveState(mustStatePath(t, root), state.RuntimeState{ProjectRoot: filepath.Join(t.TempDir(), "other")}); err != nil {
 		t.Fatal(err)
