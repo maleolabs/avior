@@ -113,7 +113,10 @@ func TestTrustConfigPointsAtToolStorage(t *testing.T) {
 // target opsional gagal terlapor tanpa mengubah keberhasilan Caddy.
 func TestTrustInstallWithManagedBinaryRunsGate(t *testing.T) {
 	root := trustFixture(t)
-	stub := filepath.Join(root, "tools", brand.Name, "bin", "caddy_linux_amd64")
+	stub := filepath.Join(root, "tools", brand.Name, "bin", "caddy_"+runtime.GOOS+"_"+runtime.GOARCH)
+	if runtime.GOOS == "windows" {
+		t.Skip("stub shell tidak executable di Windows")
+	}
 	if err := os.MkdirAll(filepath.Dir(stub), 0755); err != nil {
 		t.Fatal(err)
 	}

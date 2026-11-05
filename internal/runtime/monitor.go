@@ -137,7 +137,7 @@ func Attach(project string) (ProjectStatus, error) {
 	if resolved, resolveErr := filepath.EvalSymlinks(canonicalRoot); resolveErr == nil {
 		canonicalRoot = resolved
 	}
-	if filepath.Clean(st.ProjectRoot) != filepath.Clean(canonicalRoot) {
+	if !sameRoot(st.ProjectRoot, canonicalRoot) {
 		return ProjectStatus{}, fmt.Errorf("runtime: project state mismatch")
 	}
 	services, _, err := state.LoadProcesses(registry)
@@ -145,6 +145,26 @@ func Attach(project string) (ProjectStatus, error) {
 		return ProjectStatus{}, err
 	}
 	return ProjectStatus{ProjectRoot: st.ProjectRoot, Running: st.MainPID.PID > 0 && processgroup.ProcessAlive(st.MainPID), State: st, Services: services}, nil
+}
+
+// sameRoot membandingkan root state dengan root query: persis setelah
+// Clean, atau setelah symlink-resolve keduanya. Diperlukan karena state
+// lama/path input bisa menyimpan bentuk belum resolve (mis. /var vs
+// /private/var di macOS) sedangkan Paths/monitor menresolve.
+func sameRoot(stateRoot, queryRoot string) bool {
+	if filepath.Clean(stateRoot) == filepath.Clean(queryRoot) {
+		return true
+	}
+	resolve := func(p string) string {
+		if abs, err := filepath.Abs(p); err == nil {
+			p = abs
+		}
+		if r, err := filepath.EvalSymlinks(p); err == nil {
+			return r
+		}
+		return p
+	}
+	return filepath.Clean(resolve(stateRoot)) == filepath.Clean(resolve(queryRoot))
 }
 
 // Stop stops only runtime registered for selected project root.
@@ -172,7 +192,7 @@ func stopWithHooks(project string, wait func(time.Duration), stopManaged func(st
 	if resolved, resolveErr := filepath.EvalSymlinks(root); resolveErr == nil {
 		root = resolved
 	}
-	if filepath.Clean(st.ProjectRoot) != filepath.Clean(root) {
+	if !sameRoot(st.ProjectRoot, root) {
 		return fmt.Errorf("runtime: project state mismatch")
 	}
 	if st.MainPID.PID <= 0 {
