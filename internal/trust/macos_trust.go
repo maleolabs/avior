@@ -22,13 +22,18 @@ static OSStatus add_trust(const UInt8 *bytes, CFIndex length) {
     CFRelease(query);
     if (status == errSecSuccess) {
         SecPolicyRef policy = SecPolicyCreateSSL(true, NULL);
+        // kSecTrustSettingsResult value harus CFNumberRef: enum mentah di
+        // array const void* melanggar -Wint-conversion di Xcode baru dan
+        // merusak ownership CFDictionary.
+        SecTrustSettingsResult trustRoot = kSecTrustSettingsResultTrustRoot;
+        CFNumberRef resultNum = CFNumberCreate(NULL, kCFNumberSInt32Type, &trustRoot);
         const void *tkeys[] = { kSecTrustSettingsPolicy, kSecTrustSettingsResult };
-        const void *tvalues[] = { policy, kSecTrustSettingsResultTrustRoot };
+        const void *tvalues[] = { policy, resultNum };
         CFDictionaryRef setting = CFDictionaryCreate(NULL, tkeys, tvalues, 2, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
         const void *settings[] = { setting };
         CFArrayRef array = CFArrayCreate(NULL, settings, 1, &kCFTypeArrayCallBacks);
         status = SecTrustSettingsSetTrustSettings(cert, kSecTrustSettingsDomainUser, array);
-        CFRelease(array); CFRelease(setting); CFRelease(policy);
+        CFRelease(array); CFRelease(setting); CFRelease(policy); CFRelease(resultNum);
     }
     CFRelease(cert);
     return status;
