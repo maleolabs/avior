@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	goruntime "runtime"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -109,7 +110,10 @@ func TestTerminateEscalatesToKill(t *testing.T) {
 	}
 	ready := filepath.Join(t.TempDir(), "ready")
 	// trap "" TERM: child mengabaikan SIGTERM — jalur eskalasi SIGKILL.
-	s := mustStart(t, sh, "-c", `trap "" TERM; : > `+ready+`; sleep 30`)
+	// Path di dalam script sh: backslash Windows adalah escape char di
+	// shell POSIX (Git Bash) — normalisasi ke slash.
+	scriptReady := strings.ReplaceAll(ready, `\`, `/`)
+	s := mustStart(t, sh, "-c", `trap "" TERM; : > `+scriptReady+`; sleep 30`)
 	waitReady(t, ready)
 
 	start := time.Now()

@@ -361,7 +361,7 @@ func ownerDefinitelyGone(r processRecord) bool {
 	}
 	exe, identity := processIdentity(r.OwnerPID)
 	if exe == "" || identity == "" {
-		if !identityUnavailableOwnerCleanupAllowed() {
+		if !ownerCleanupWithoutIdentity() {
 			return false
 		}
 		return processGone(r.OwnerPID)
@@ -378,11 +378,17 @@ func recordMatchesProcess(r processRecord) bool {
 	if exe == "" || identity == "" || !executablesMatch(exe, r.Executable) || identity != r.Identity {
 		return false
 	}
-	// Windows tidak bisa mengambil command line secara portabel dengan
-	// implementasi saat ini. Identity tetap PID-scoped di sana; Unix
-	// memverifikasi command line juga.
 	command, err := processCommand(r.PID)
-	return err == nil && command != "" && r.Command != "" && commandsMatch(command, r.Command)
+	if err != nil {
+		return false
+	}
+	// Windows tidak menyediakan command line proses lain secara portabel;
+	// identitas (executable + creation time) sudah PID-scoped. Unix
+	// memverifikasi command line tambahan.
+	if command == "" {
+		return processCommandLineOptional()
+	}
+	return r.Command != "" && commandsMatch(command, r.Command)
 }
 
 // Field comm milik ps sengaja pendek dan hanya melaporkan nama proses,

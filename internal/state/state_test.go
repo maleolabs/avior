@@ -270,7 +270,7 @@ func TestSaveAtomicNoTempLeft(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Stat error: %v", err)
 	}
-	if procInfo.Mode().Perm() != 0o644 {
+	if runtime.GOOS != "windows" && procInfo.Mode().Perm() != 0o644 {
 		t.Fatalf("perm processes = %v, want 0644", procInfo.Mode().Perm())
 	}
 }
