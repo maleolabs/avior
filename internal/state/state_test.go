@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -252,7 +253,9 @@ func TestSaveAtomicNoTempLeft(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Info error: %v", err)
 	}
-	if info.Mode().Perm() != 0o600 {
+	// Permission bits POSIX-only: Windows memetakan ACL ke mode yang
+	// tidak menghormati 0600/0644 (umumnya -rw-rw-rw-).
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("perm state = %v, want 0600", info.Mode().Perm())
 	}
 	// Perm processes file diverifikasi terpisah di bawah (0644).

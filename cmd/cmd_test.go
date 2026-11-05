@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -38,6 +39,28 @@ func runCLIPipe(t *testing.T, args ...string) (string, error) {
 	return ui.Strip(out.String()), err
 }
 
+// stubTools menulis stub tool (composer/php/mysql/caddy) ke PATH sementara.
+// Windows: exec.LookPath hanya menemukan extension PATHEXT (.bat); stub
+// shell tanpa extension gak terdeteksi → prerequisites "belum tersedia".
+func stubTools(t *testing.T, scripts map[string]string) {
+	t.Helper()
+	bin := t.TempDir()
+	for name, stdout := range scripts {
+		if runtime.GOOS == "windows" {
+			p := filepath.Join(bin, name+".bat")
+			if err := os.WriteFile(p, []byte("@echo "+stdout+"\r\n"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
+		p := filepath.Join(bin, name)
+		if err := os.WriteFile(p, []byte("#!/bin/sh\necho "+stdout+"\n"), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
 func TestDiagnosticJSONFailureAndSuccess(t *testing.T) {
 	root := t.TempDir()
 	out, err := runCLIStrip(t, "--root", root, "verify", "production", "--json")
@@ -59,14 +82,7 @@ func TestDiagnosticJSONFailureAndSuccess(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	bin := t.TempDir()
-	for name, script := range map[string]string{"composer": "#!/bin/sh\necho Composer 2\n", "php": "#!/bin/sh\necho PHP 8\n", "mysql": "#!/bin/sh\necho MySQL 8\n"} {
-		path := filepath.Join(bin, name)
-		if err := os.WriteFile(path, []byte(script), 0700); err != nil {
-			t.Fatal(err)
-		}
-	}
-	t.Setenv("PATH", bin)
+	stubTools(t, map[string]string{"composer": "Composer 2", "php": "PHP 8", "mysql": "MySQL 8"})
 	out, err = runCLIStrip(t, "--root", root, "verify", "production", "--json")
 	if err != nil {
 		t.Fatal(err)

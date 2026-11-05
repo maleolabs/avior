@@ -9,6 +9,7 @@ package gateway
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -253,7 +254,9 @@ func TestGatewayDirPermission(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dir gateway tidak dibuat: %v", err)
 	}
-	if info.Mode().Perm() != 0o700 {
+	// Permission bits POSIX-only: Windows memetakan ACL ke mode yang
+	// tidak menghormati 0700.
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o700 {
 		t.Errorf("dir gateway perm = %o, want 0700", info.Mode().Perm())
 	}
 }

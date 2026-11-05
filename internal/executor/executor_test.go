@@ -35,7 +35,8 @@ func TestWindowsCommandWrapsCmdScripts(t *testing.T) {
 		t.Skip("Windows command line only")
 	}
 	got, args := windowsCommand(`C:\Program Files\Composer\composer.cmd`, []string{"install", "--no-interaction"})
-	if got != "cmd.exe" || len(args) != 7 || args[0] != "/d" || args[3] != `"C:\Program Files\Composer\composer.cmd"` {
+	// /d /s /c "<script>" + user args → 3 + 1 + len(args).
+	if got != "cmd.exe" || len(args) != 6 || args[0] != "/d" || args[3] != `"C:\Program Files\Composer\composer.cmd"` {
 		t.Fatalf("command=(%q,%q)", got, args)
 	}
 }

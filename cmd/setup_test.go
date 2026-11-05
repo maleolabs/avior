@@ -19,14 +19,10 @@ func setupFixture(t *testing.T) string {
 			t.Fatal(err)
 		}
 	}
-	bin := t.TempDir()
-	for _, name := range []string{"composer", "php", "mysql", "node", "npm"} {
-		p := filepath.Join(bin, name)
-		if err := os.WriteFile(p, []byte("#!/bin/sh\necho fake 1.0\n"), 0755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	stubTools(t, map[string]string{
+		"composer": "fake 1.0", "php": "fake 1.0", "mysql": "fake 1.0",
+		"node": "fake 1.0", "npm": "fake 1.0",
+	})
 	return root
 }
 

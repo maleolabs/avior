@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -47,6 +48,16 @@ func fakeTools(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
 	for _, name := range []string{"composer", "php", "mysql", "node", "npm"} {
+		// Windows: exec.LookPath hanya menemukan extension PATHEXT
+		// (.exe/.bat/.cmd); stub tanpa extension gak terdeteksi. Entry
+		// .bat dieksekusi via cmd.exe dengan echo yang sama.
+		if runtime.GOOS == "windows" {
+			p := filepath.Join(dir, name+".bat")
+			if err := os.WriteFile(p, []byte("@echo fake 1.0\r\n"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
 		p := filepath.Join(dir, name)
 		if err := os.WriteFile(p, []byte("#!/bin/sh\necho fake 1.0\n"), 0755); err != nil {
 			t.Fatal(err)

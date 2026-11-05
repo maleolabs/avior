@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -19,8 +20,16 @@ func trustFixture(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
 	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "caddy"), []byte("#!/bin/sh\necho v2.10.0 stub\n"), 0755); err != nil {
-		t.Fatal(err)
+	// Windows: exec.LookPath hanya menemukan extension PATHEXT; stub
+	// shell tanpa extension gak terdeteksi → "Caddy belum tersedia".
+	if runtime.GOOS == "windows" {
+		if err := os.WriteFile(filepath.Join(bin, "caddy.bat"), []byte("@echo v2.10.0 stub\r\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		if err := os.WriteFile(filepath.Join(bin, "caddy"), []byte("#!/bin/sh\necho v2.10.0 stub\n"), 0755); err != nil {
+			t.Fatal(err)
+		}
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("HOME", t.TempDir()) // state dir + manifest terisolasi
