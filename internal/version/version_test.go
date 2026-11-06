@@ -30,9 +30,8 @@ func TestVersionFromLdflags(t *testing.T) {
 	}
 }
 
-// TestVersionFromFile: tanpa ldflags, file VERSION di cwd dipakai.
-// Test binary go berada di cache build di luar tree modul, sehingga
-// kandidat exe-dir memang tidak menemukan file — ini menguji jalur cwd.
+// TestVersionFromFile: tanpa ldflags, file VERSION di sisi binary
+// (disimulasikan lewat versionFileFrom) dipakai.
 func TestVersionFromFile(t *testing.T) {
 	saveVersion(t)
 	version = ""
@@ -41,15 +40,14 @@ func TestVersionFromFile(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "VERSION"), []byte(want+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Chdir(dir)
 
-	if got := Version(); got != want {
-		t.Fatalf("Version() = %q, want %q (dari file)", got, want)
+	if got, ok := versionFileFrom(dir); !ok || got != want {
+		t.Fatalf("versionFileFrom(%q) = %q, %v, want %q, true", dir, got, ok, want)
 	}
 }
 
-// TestVersionFileWalksUp: file VERSION di atas cwd ditemukan dengan
-// berjalan ke atas.
+// TestVersionFileWalksUp: file VERSION di atas direktori binary ditemukan
+// dengan berjalan ke atas.
 func TestVersionFileWalksUp(t *testing.T) {
 	saveVersion(t)
 	version = ""
@@ -61,10 +59,34 @@ func TestVersionFileWalksUp(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "VERSION"), []byte("9.9.9\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Chdir(nested)
 
-	if got := Version(); got != "9.9.9" {
-		t.Fatalf("Version() = %q, want 9.9.9 (file root ditemukan ke atas)", got)
+	if got, ok := versionFileFrom(nested); !ok || got != "9.9.9" {
+		t.Fatalf("versionFileFrom(%q) = %q, %v, want 9.9.9, true", nested, got, ok)
+	}
+}
+
+// TestVersionFileIgnoresProjectCWD: file VERSION di cwd proyek TIDAK
+// boleh menjadi versi CLI — kebocoran ini membuat archive production
+// mencari rilis GitHub versi aplikasi user (HTTP 404). Sumber
+// versionFile hanya direktori executable; test binary go berada di
+// cache build di luar tree modul sehingga tidak menemukan VERSION
+// manapun, walau cwd proyek memilikinya.
+func TestVersionFileIgnoresProjectCWD(t *testing.T) {
+	saveVersion(t)
+	version = ""
+	project := t.TempDir()
+	if err := os.WriteFile(filepath.Join(project, "VERSION"), []byte("1.0.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(project)
+
+	if got, ok := versionFile(); ok {
+		t.Fatalf("versionFile() menemukan VERSION dari cwd proyek: %q — exeDir satu-satunya sumber yangboleh", got)
+	}
+	// versionFileFrom sendiri tetap mencari dari dir yang diberikan —
+	// itu kontraknya; pemanggil versionFile() yang membatasi ke exe dir.
+	if got, ok := versionFileFrom(project); !ok || got != "1.0.0" {
+		t.Fatalf("versionFileFrom(project) = %q, %v, want 1.0.0, true (kontrak helper)", got, ok)
 	}
 }
 

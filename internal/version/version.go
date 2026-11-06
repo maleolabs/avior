@@ -7,8 +7,10 @@
 //
 //  1. ldflags -X <brand.ModulePath>/internal/version.version — build
 //     rilis CI: tag menjadi nilai eksplisit, paling otoritatif.
-//  2. File VERSION di root modul — build lokal dari checkout (go build /
-//     go test: binary/cwd berada di dalam tree modul).
+//  2. File VERSION di root modul — build lokal dari checkout (binary
+//     diletakkan di dalam tree modul; diambil dari direktori executable,
+//     JANGAN dari cwd — CLI sering dijalankan di dalam proyek user
+//     yang punya file VERSION versi aplikasinya sendiri).
 //  3. debug.ReadBuildInfo vcs.revision — diagnostik build dari checkout
 //     tanpa ldflags; label pendek, BUKAN tag rilis yang bisa diunduh.
 //  4. "0.0.0-dev" — fallback terakhir.
@@ -85,34 +87,38 @@ func isReleaseVersion(v string) bool {
 }
 
 // versionFile mencari file VERSION di root modul: dari direktori binary
-// (build lokal menaruh binary di dalam tree modul) dan dari cwd, masing
-// satu naik ke atas paling banyak maxWalkUp level.
+// (build lokal menaruh binary di dalam tree modul). Pencarian dari cwd
+// sengaja TIDAK dilakukan: CLI dijalankan dari dalam direktori proyek
+// user (mis. Laravel dengan file VERSION versi aplikasi) lalu memakai
+// versi proyek sebagai versi CLI — archive production mencari rilis
+// GitHub versi aplikasi dan mendapat 404.
 func versionFile() (string, bool) {
-	var bases []string
-	if exe, err := os.Executable(); err == nil {
-		if resolved, rerr := filepath.EvalSymlinks(exe); rerr == nil {
-			exe = resolved
-		}
-		bases = append(bases, filepath.Dir(exe))
+	exe, err := os.Executable()
+	if err != nil {
+		return "", false
 	}
-	if cwd, err := os.Getwd(); err == nil {
-		bases = append(bases, cwd)
+	if resolved, rerr := filepath.EvalSymlinks(exe); rerr == nil {
+		exe = resolved
 	}
-	for _, base := range bases {
-		dir := base
-		for i := 0; i < maxWalkUp; i++ {
-			data, err := os.ReadFile(filepath.Join(dir, "VERSION"))
-			if err == nil {
-				if v := strings.TrimSpace(string(data)); v != "" {
-					return strings.TrimPrefix(v, "v"), true
-				}
+	return versionFileFrom(filepath.Dir(exe))
+}
+
+// versionFileFrom menaik dari dir paling banyak maxWalkUp level mencari
+// file VERSION; dipisah supaya test dapat menguji walk-up tanpa
+// memandu os.Executable.
+func versionFileFrom(dir string) (string, bool) {
+	for i := 0; i < maxWalkUp; i++ {
+		data, err := os.ReadFile(filepath.Join(dir, "VERSION"))
+		if err == nil {
+			if v := strings.TrimSpace(string(data)); v != "" {
+				return strings.TrimPrefix(v, "v"), true
 			}
-			parent := filepath.Dir(dir)
-			if parent == dir {
-				break
-			}
-			dir = parent
 		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
 	}
 	return "", false
 }
